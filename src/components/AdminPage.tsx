@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 import { AdminTabs } from './AdminTabs';
 import BackupMaintenance from './BackupMaintenance/BackupMaintenance';
 import { ClientForm } from './ClientForm';
@@ -132,12 +132,11 @@ export const AdminPage = () => {
     const loadCompanyData = async () => {
       try {
         const supabaseData = await supabaseDataService.getCompany();
-        if (supabaseData && supabaseData.logo_url) {
-          // Se existe logo no Supabase, usa ele
+        if (supabaseData) {
+          // Se existe dados no Supabase, usa eles
           const formattedData = {
             ...emptyCompanyData,
             ...supabaseData,
-            logo_url: supabaseData.logo_url,
             environmental_license: {
               ...emptyCompanyData.environmental_license,
               ...(supabaseData.environmental_license || {})
@@ -148,8 +147,9 @@ export const AdminPage = () => {
             }
           };
           setCompanyData(formattedData);
+          console.log('Dados da empresa carregados do Supabase:', formattedData);
         } else {
-          // Se não existe logo no Supabase, tenta carregar do localStorage
+          // Se não existe dados no Supabase, tenta carregar do localStorage
           const localData = localStorage.getItem(COMPANY_STORAGE_KEY);
           if (localData) {
             const parsed = JSON.parse(localData);
@@ -165,6 +165,20 @@ export const AdminPage = () => {
                 ...(parsed.sanitary_permit || {})
               }
             });
+            console.log('Dados da empresa carregados do localStorage:', parsed);
+          } else {
+            // Se não há dados em lugar nenhum, inicializa com dados padrão
+            console.log('Nenhum dado da empresa encontrado, inicializando dados padrão');
+            const defaultData = {
+              ...emptyCompanyData,
+              name: 'Sulpest',
+              cnpj: '26.719.065/0001/85',
+              address: 'Rua Dr. Mario Brum, 657',
+              phone: '54991284396',
+              email: 'contato@sulpest.com.br'
+            };
+            setCompanyData(defaultData);
+            localStorage.setItem(COMPANY_STORAGE_KEY, JSON.stringify(defaultData));
           }
         }
       } catch (error) {
@@ -233,7 +247,8 @@ export const AdminPage = () => {
             tecnicoSignature: tecnicoData?.responsavel_tecnico_signature || '',
           }));
         } catch (error) {
-          toast.error('Erro ao carregar assinaturas do Supabase');
+          // toast.error('Erro ao carregar assinaturas do Supabase');
+          console.error('Erro ao carregar assinaturas do Supabase');
         }
       };
       fetchSignatures();
@@ -244,7 +259,8 @@ export const AdminPage = () => {
     e.preventDefault();
 
     if (!companyData.name || !companyData.cnpj || !companyData.phone || !companyData.address || !companyData.email) {
-      toast.error('Por favor, preencha todos os campos obrigatórios');
+      // toast.error('Por favor, preencha todos os campos obrigatórios');
+      console.error('Por favor, preencha todos os campos obrigatórios');
       return;
     }
 
@@ -270,11 +286,13 @@ export const AdminPage = () => {
       // Salvar no Supabase
       await supabaseDataService.saveCompany(supabaseData);
       
-      toast.success('Dados da empresa salvos com sucesso!');
+      // toast.success('Dados da empresa salvos com sucesso!');
+      console.log('Dados da empresa salvos com sucesso!');
       setShowSavedData(true);
     } catch (error) {
       console.error('Erro ao salvar dados:', error);
-      toast.error('Erro ao salvar dados da empresa');
+      // toast.error('Erro ao salvar dados da empresa');
+      console.error('Erro ao salvar dados da empresa');
     }
   };
 
@@ -284,7 +302,8 @@ export const AdminPage = () => {
       setCompanyData(emptyCompanyData);
       setCompanyLogo(null);
       setShowSavedData(false);
-      toast.success('Dados da empresa excluídos com sucesso!');
+      // toast.success('Dados da empresa excluídos com sucesso!');
+      console.log('Dados da empresa excluídos com sucesso!');
     }
   };
 
@@ -309,10 +328,12 @@ export const AdminPage = () => {
       // Salvar no Supabase
       await supabaseDataService.saveCompany(updatedData);
       
-      toast.success('Logo atualizado com sucesso!');
+      // toast.success('Logo atualizado com sucesso!');
+      console.log('Logo atualizado com sucesso!');
     } catch (error) {
       console.error('Erro ao processar imagem:', error);
-      toast.error('Erro ao processar imagem');
+      // toast.error('Erro ao processar imagem');
+      console.error('Erro ao processar imagem');
     }
   };
 
@@ -354,15 +375,17 @@ export const AdminPage = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `safeprag_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `sulpest_backup_${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Backup realizado com sucesso!');
+      // toast.success('Backup realizado com sucesso!');
+      console.log('Backup realizado com sucesso!');
     } catch (error) {
       console.error('Erro ao fazer backup:', error);
-      toast.error('Erro ao gerar backup');
+      // toast.error('Erro ao gerar backup');
+      console.error('Erro ao gerar backup');
     }
   };
 
@@ -375,10 +398,12 @@ export const AdminPage = () => {
       try {
         const backup = JSON.parse(e.target?.result as string);
         restoreBackup(backup);
-        toast.success('Backup restaurado com sucesso!');
+        // toast.success('Backup restaurado com sucesso!');
+         console.log('Backup restaurado com sucesso!');
       } catch (error) {
         console.error('Erro ao restaurar backup:', error);
-        toast.error('Erro ao restaurar backup');
+        // toast.error('Erro ao restaurar backup');
+        console.error('Erro ao restaurar backup');
       }
     };
     reader.readAsText(file);
@@ -397,9 +422,11 @@ export const AdminPage = () => {
           controlador_signature: userData.signature,
           updated_at: new Date().toISOString(),
         }, { onConflict: ['signature_type'] });
-      toast.success('Dados do Controlador salvos no Supabase!');
+      // toast.success('Dados do Controlador salvos no Supabase!');
+      console.log('Dados do Controlador salvos no Supabase!');
     } catch (error) {
-      toast.error('Erro ao salvar dados do Controlador no Supabase');
+      // toast.error('Erro ao salvar dados do Controlador no Supabase');
+      console.error('Erro ao salvar dados do Controlador no Supabase');
     }
   };
 
@@ -418,9 +445,11 @@ export const AdminPage = () => {
           responsavel_tecnico_signature: userData.tecnicoSignature,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'signature_type' });
-      toast.success('Dados do Responsável Técnico salvos no Supabase!');
+      // toast.success('Dados do Responsável Técnico salvos no Supabase!');
+      console.log('Dados do Responsável Técnico salvos no Supabase!');
     } catch (error) {
-      toast.error('Erro ao salvar dados do Responsável Técnico no Supabase');
+      // toast.error('Erro ao salvar dados do Responsável Técnico no Supabase');
+      console.error('Erro ao salvar dados do Responsável Técnico no Supabase');
     }
   };
 
@@ -477,7 +506,7 @@ export const AdminPage = () => {
     ctx.beginPath();
     ctx.moveTo(lastControladorX, lastControladorY);
     ctx.lineTo(x, y);
-    ctx.strokeStyle = '#000';
+    ctx.strokeStyle = '#1e40af';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.stroke();
@@ -535,7 +564,7 @@ export const AdminPage = () => {
     ctx.beginPath();
     ctx.moveTo(lastTecnicoX, lastTecnicoY);
     ctx.lineTo(x, y);
-    ctx.strokeStyle = '#000';
+    ctx.strokeStyle = '#1e40af';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.stroke();
@@ -590,7 +619,8 @@ export const AdminPage = () => {
       setSignatureViewTitle('Assinatura do Responsável Técnico');
       setIsSignatureViewModalOpen(true);
     } else {
-      toast.info('Nenhuma assinatura salva para visualizar.');
+      // toast.info('Nenhuma assinatura salva para visualizar.');
+      console.log('Nenhuma assinatura salva para visualizar.');
     }
   };
 
@@ -619,7 +649,7 @@ export const AdminPage = () => {
                   <div className="mb-6">
                     <ImageUpload 
                       onFileSelect={handleLogoUpload} 
-                      currentImageUrl={"https://badyvhzrjbemyqzeqlaw.supabase.co/storage/v1/object/public/company/logos/logo.png"}
+                      currentImageUrl={"https://badyvhzrjbemyqzeqlaw.supabase.co/storage/v1/object/public/images//Sulpest.png"}
                     />
                   </div>
 

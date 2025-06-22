@@ -25,7 +25,7 @@ const BackupMaintenance: React.FC = () => {
       
       // Nome do arquivo com data atual
       const date = new Date().toISOString().split('T')[0];
-      link.download = `safeprag_backup_${date}.json`;
+      link.download = `sulpest_backup_${date}.json`;
       
       // Simular clique para iniciar download
       document.body.appendChild(link);

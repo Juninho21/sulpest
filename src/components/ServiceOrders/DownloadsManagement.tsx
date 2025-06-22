@@ -5,8 +5,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { DatePicker } from '../ui/date-picker';
 import { getAllServiceOrders } from '../../services/ordemServicoService';
 import { downloadPDFFromStorage, getAllStoredPDFs } from '../../services/pdfService';
-import { toast } from 'react-toastify';
-import { Download, FileText, Search, X } from 'lucide-react';
+import { fileSharingService } from '../../services/fileSharingService';
+import { Capacitor } from '@capacitor/core';
+// import { toast } from 'react-toastify';
+import { Download, FileText, Search, X, Share as ShareIcon } from 'lucide-react';
 
 interface StoredPDF {
   orderNumber: string;
@@ -24,8 +26,8 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
     orderNumber: '',
     clientName: '',
     serviceType: '',
-    startDate: null,
-    endDate: null
+    startDate: undefined as Date | undefined,
+    endDate: undefined as Date | undefined
   });
 
   const [data, setData] = useState<StoredPDF[]>([]);
@@ -45,7 +47,8 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
       setFilteredData(storedPDFs);
     } catch (error) {
       console.error('Erro ao carregar PDFs:', error);
-      toast.error('Erro ao carregar PDFs');
+      // toast.error('Erro ao carregar PDFs');
+      console.error('Erro ao carregar PDFs');
     } finally {
       setLoading(false);
     }
@@ -89,8 +92,8 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
       orderNumber: '',
       clientName: '',
       serviceType: '',
-      startDate: null,
-      endDate: null
+      startDate: undefined,
+      endDate: undefined
     });
     setFilteredData(data);
   };
@@ -119,30 +122,61 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
       link.click();
       document.body.removeChild(link);
       
-      toast.success('Dados exportados com sucesso!');
+      // toast.success('Dados exportados com sucesso!');
+      console.log('Dados exportados com sucesso!');
     } catch (error) {
       console.error('Erro ao exportar dados:', error);
-      toast.error('Erro ao exportar dados');
+      // toast.error('Erro ao exportar dados');
+      console.error('Erro ao exportar dados');
     }
   };
 
   const handleDownloadPDF = async (orderNumber: string) => {
     try {
-      await downloadPDFFromStorage(orderNumber);
+      console.log('Iniciando compartilhamento para OS:', orderNumber);
+      console.log('Plataforma detectada:', Capacitor.getPlatform());
       
-      // Detecta o tipo de ambiente para mostrar mensagem apropriada
-      const isCapacitor = !!(window as any).Capacitor;
-      const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                    (window.navigator as any).standalone === true ||
-                    document.referrer.includes('android-app://');
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      // Verificar se o serviço está disponível
+      if (!fileSharingService) {
+        console.error('Serviço de compartilhamento não disponível');
+        return;
+      }
       
-      if (isCapacitor && !isPWA) {
-        toast.success('PDF salvo com sucesso! Verifique a pasta Downloads ou Documentos do seu dispositivo.');
-      } else if (isPWA && isMobile) {
-        toast.success('PDF processado! Use o compartilhamento do sistema ou verifique a pasta Downloads.');
+      // Verificar se o compartilhamento é suportado
+      if (!fileSharingService.isSharingSupported()) {
+        console.log('Compartilhamento não suportado, fazendo download direto');
+        // Fallback para download direto usando localStorage
+        try {
+          const storedPDFs = JSON.parse(localStorage.getItem('safeprag_service_order_pdfs') || '{}');
+          const pdfData = storedPDFs[orderNumber]?.pdf;
+          if (pdfData) {
+            const blob = new Blob([pdfData], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `OS_${orderNumber}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            console.log('Download direto concluído');
+          } else {
+            console.error('PDF não encontrado para download direto');
+          }
+        } catch (downloadError) {
+          console.error('Erro no download direto:', downloadError);
+        }
+        return;
+      }
+      
+      // Usa o novo serviço de compartilhamento
+      console.log('Chamando serviço de compartilhamento...');
+      const success = await fileSharingService.shareServiceOrderPDF(orderNumber);
+      
+      if (success) {
+        console.log('Compartilhamento realizado com sucesso');
       } else {
-        toast.success('Download iniciado com sucesso!');
+        console.error('Falha ao compartilhar arquivo');
       }
     } catch (error) {
       console.error('Erro ao baixar PDF:', error);
@@ -152,13 +186,13 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
       
       if (errorMessage.includes('PDF salvo com sucesso')) {
         // Se o erro na verdade indica sucesso (arquivo salvo mas não aberto)
-        toast.success(errorMessage);
+        console.log(errorMessage);
       } else if (errorMessage.includes('PDF não encontrado')) {
-        toast.error('PDF não encontrado. Tente gerar o relatório novamente.');
+        console.error('PDF não encontrado. Tente gerar o relatório novamente.');
       } else if (errorMessage.includes('listener failed to fetch')) {
-        toast.error('Erro de conectividade. Tente novamente ou use o navegador padrão.');
+        console.error('Erro de conectividade. Tente novamente ou use o navegador padrão.');
       } else {
-        toast.error(`Erro ao processar PDF: ${errorMessage}`);
+        console.error(`Erro ao processar PDF: ${errorMessage}`);
       }
     }
   };
@@ -263,8 +297,8 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
                     size="sm"
                     className="flex items-center gap-1"
                   >
-                    <Download size={16} />
-                    Download
+                    <ShareIcon size={16} />
+                    Compartilhar
                   </Button>
                 </div>
                 
@@ -308,8 +342,8 @@ const DownloadsManagement: React.FC<DownloadsManagementProps> = () => {
                         size="sm"
                         className="flex items-center gap-1"
                       >
-                        <Download size={16} />
-                        Download PDF
+                        <ShareIcon size={16} />
+                        Compartilhar PDF
                       </Button>
                     </TableCell>
                   </TableRow>

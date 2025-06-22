@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabase';
-import { toast } from 'react-toastify';
+import { Logo } from '../Logo';
+// import { toast } from 'react-toastify';
 
 export function Register() {
   const [email, setEmail] = useState('');
@@ -34,7 +35,8 @@ export function Register() {
       if (error) throw error;
       
       setSuccess(true);
-      toast.success('Cadastro realizado com sucesso! Por favor, verifique seu e-mail para confirmar a conta.');
+      // toast.success('Cadastro realizado com sucesso! Por favor, verifique seu e-mail para confirmar a conta.');
+      console.log('Cadastro realizado com sucesso! Por favor, verifique seu e-mail para confirmar a conta.');
       
       // Redirecionar para a página de login após 5 segundos
       setTimeout(() => {
@@ -46,7 +48,8 @@ export function Register() {
       }, 5000);
     } catch (err: any) {
       setError(err.message || 'Erro ao realizar cadastro');
-      toast.error(err.message || 'Erro ao realizar cadastro');
+      // toast.error(err.message || 'Erro ao realizar cadastro');
+      console.error(err.message || 'Erro ao realizar cadastro');
     } finally {
       setLoading(false);
     }
@@ -56,11 +59,7 @@ export function Register() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <img
-            className="mx-auto h-24 w-auto"
-            src="/img/logo_transparent.png"
-            alt="SafePrag Logo"
-          />
+          <Logo size="xl" />
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Crie sua conta
           </h2>

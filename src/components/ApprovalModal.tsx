@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { SignatureCanvas, SignatureCanvasRef } from './SignatureCanvas';
 import { saveClientSignature } from '../services/pdfService';
-import { useNotification } from '../contexts/NotificationContext';
+// import { useNotification } from '../contexts/NotificationContext'; // Removido
 import { useEffect } from 'react';
 
 interface ApprovalModalProps {
@@ -25,7 +25,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   const [isWritingDisabled, setIsWritingDisabled] = useState(false);
 
   const signatureRef = useRef<SignatureCanvasRef>(null);
-  const { showNotification } = useNotification();
+  // const { showNotification } = useNotification(); // Removido
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

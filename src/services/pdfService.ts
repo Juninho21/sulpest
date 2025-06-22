@@ -13,13 +13,13 @@ interface CompanyData {
   address: string;
   email: string;
   logoUrl?: string;
-  environmentalLicense?: {
+  environmental_license?: {
     number: string;
     date: string;
   };
-  sanitaryPermit?: {
+  sanitary_permit?: {
     number: string;
-    expiryDate: string;
+    expiry_date: string;
   };
 }
 
@@ -263,13 +263,25 @@ export const generateServiceOrderPDF = async (
     // Se não existir, criar um array com o serviço único (para compatibilidade)
     serviceData.services = serviceData.service ? [serviceData.service] : [];
   }
+  
+  // Log dos dados recebidos
+  console.log('Dados recebidos no pdfService:', serviceData);
+  console.log('Dados do cliente recebidos:', serviceData.client);
+  
   try {
     // Gerar número sequencial da OS
     const osNumber = getNextOSNumber();
     serviceData.orderNumber = osNumber.toString();
 
     // Buscar dados da empresa do Supabase (compatível com a aba Empresa)
-    const companyData = await supabaseDataService.getCompany();
+    let companyData = await supabaseDataService.getCompany();
+    // Forçar logo padrão se não vier do banco
+    if (!companyData) {
+      companyData = { name: '', cnpj: '', phone: '', address: '', email: '', logo_url: '' };
+    }
+    if (!companyData.logo_url) {
+      companyData.logo_url = 'https://badyvhzrjbemyqzeqlaw.supabase.co/storage/v1/object/public/images//Sulpest.png';
+    }
 
     // Buscar dados da assinatura do cliente do localStorage
     const clientSignatureData = localStorage.getItem('client_signature_data');
@@ -282,46 +294,8 @@ export const generateServiceOrderPDF = async (
       }
     }
 
-    // Buscar ordem de serviço ativa
-    const serviceOrdersStr = localStorage.getItem(SERVICE_ORDERS_KEY);
-    const serviceOrders = serviceOrdersStr ? JSON.parse(serviceOrdersStr) : [];
-    const activeOrder = serviceOrders.find((order: any) => order.status === 'in_progress');
-
-    // Se encontrou uma OS ativa, buscar o agendamento correspondente
-    if (activeOrder) {
-      const schedulesStr = localStorage.getItem(SCHEDULES_KEY);
-      const schedules = schedulesStr ? JSON.parse(schedulesStr) : [];
-      const schedule = schedules.find((s: any) => s.id === activeOrder.scheduleId);
-
-      if (schedule) {
-        // Buscar dados completos do cliente no Supabase
-        let client = null;
-        if (schedule.client_id || schedule.clientId) {
-          const { data, error } = await supabase
-            .from('clients')
-            .select('*')
-            .eq('id', schedule.client_id || schedule.clientId)
-            .single();
-          if (!error && data) {
-            client = data;
-          }
-        }
-        // Atualizar os dados do cliente com as informações completas
-        const pdfClient: PDFClient = {
-          code: client?.code || 'N/A',
-          name: client?.name || 'N/A',
-          branch: client?.branch || 'N/A',
-          document: client?.document || 'N/A',
-          cnpj: client?.cnpj || 'N/A',
-          city: client?.city || 'N/A',
-          address: client?.address || 'N/A',
-          contact: client?.contact || 'N/A',
-          phone: client?.phone || 'N/A',
-          email: client?.email || 'N/A'
-        };
-        serviceData.client = pdfClient;
-      }
-    }
+    // Os dados do cliente agora vêm corretamente do App.tsx
+    console.log('Dados do cliente recebidos para o PDF:', serviceData.client);
 
     // Verifica se existem dados retroativos no localStorage
     const retroactiveDataStr = localStorage.getItem('retroactive_service_data');
@@ -805,7 +779,6 @@ export const generateServiceOrderPDF = async (
           <div style="font-weight: bold; margin-top: 5px;">Controlador De Pragas</div>
           ${controladorData?.controlador_name ? `<div style="font-size: 11px; margin-top: 2px;">${controladorData.controlador_name}</div>` : ''}
           ${controladorData?.controlador_phone ? `<div style=\"font-size: 11px; margin-top: 2px;\">${controladorData.controlador_phone}</div>` : ''}
-          ${controladorData?.controlador_email ? `<div style=\"font-size: 11px; margin-top: 2px;\">${controladorData.controlador_email}</div>` : ''}
         </div>
       </div>
       <div style="flex: 1; max-width: 180px;">
@@ -814,8 +787,6 @@ export const generateServiceOrderPDF = async (
           <div style="font-weight: bold; margin-top: 5px;">Responsável Técnico</div>
           ${tecnicoData?.responsavel_tecnico_name ? `<div style="font-size: 11px; margin-top: 2px;">${tecnicoData.responsavel_tecnico_name}</div>` : ''}
           ${tecnicoData?.responsavel_tecnico_crea ? `<div style=\"font-size: 11px; margin-top: 2px;\">CREA ${tecnicoData.responsavel_tecnico_crea}</div>` : ''}
-          ${tecnicoData?.responsavel_tecnico_phone ? `<div style=\"font-size: 11px; margin-top: 2px;\">${tecnicoData.responsavel_tecnico_phone}</div>` : ''}
-          ${tecnicoData?.responsavel_tecnico_email ? `<div style=\"font-size: 11px; margin-top: 2px;\">${tecnicoData.responsavel_tecnico_email}</div>` : ''}
         </div>
       </div>
       <div style="flex: 1; max-width: 180px;">
@@ -823,6 +794,7 @@ export const generateServiceOrderPDF = async (
           ${clientData?.signature ? `<img src="${clientData.signature}" alt="Assinatura" style="width: 180px; height: 60px; margin-bottom: 5px; display: block;">` : `<div style="width: 180px; height: 60px; margin-bottom: 5px; display: block;"></div>`}
           <div style="font-weight: bold; margin-top: 5px;">Contato Do Cliente</div>
           ${clientData?.contato ? `<div style="font-size: 11px; margin-top: 2px;">${clientData.contato}</div>` : ''}
+          ${clientData?.phone ? `<div style="font-size: 11px; margin-top: 2px;">${clientData.phone}</div>` : ''}
         </div>
       </div>
     `;

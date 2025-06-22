@@ -75,7 +75,19 @@ export const syncServiceOrdersToSupabase = async (): Promise<SyncResult> => {
       const { error } = await supabase
         .from('service_orders')
         .upsert({
-          ...order,
+          id: order.id,
+          client_id: order.clientId,
+          schedule_id: order.scheduleId,
+          status: order.status,
+          service_type: order.serviceType,
+          target_pest: order.targetPest,
+          location: order.location,
+          observations: order.observations,
+          application_method: order.applicationMethod,
+          product_amount: order.productAmount ? parseFloat(order.productAmount) : null,
+          start_time: order.startTime ? new Date(order.startTime).toISOString() : null,
+          end_time: order.endTime ? new Date(order.endTime).toISOString() : null,
+          created_at: order.createdAt ? new Date(order.createdAt).toISOString() : new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_sync: new Date().toISOString()
         });

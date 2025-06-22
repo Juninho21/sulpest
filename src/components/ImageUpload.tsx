@@ -17,8 +17,13 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
   // Update preview when currentImageUrl changes
   useEffect(() => {
+    console.log('🖼️ ImageUpload recebeu URL:', currentImageUrl);
     if (currentImageUrl) {
+      console.log('🖼️ Definindo preview URL:', currentImageUrl);
       setPreviewUrl(currentImageUrl);
+    } else {
+      console.log('🖼️ Nenhuma URL recebida, limpando preview');
+      setPreviewUrl('');
     }
   }, [currentImageUrl]);
 

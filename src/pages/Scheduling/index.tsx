@@ -3,19 +3,28 @@ import { motion } from 'framer-motion';
 import { Calendar, Clock, MapPin, Phone, Mail, User, FileText, Plus, X, Play, Package, Check, ThumbsUp } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { toast } from 'react-toastify';
-import { Client, SchedulingFilters } from '../../types/scheduling';
+// import { toast } from 'react-toastify';
+import { SchedulingFilters } from '../../types/scheduling';
+import { Schedule } from '../../types/schedule';
 import { schedulingService } from '../../services/schedulingService';
+import { hasActiveSchedule, hasActiveScheduleAsync } from '../../services/ordemServicoService';
 import { NewScheduleModal } from './NewScheduleModal';
+import { supabase } from '../../config/supabase';
+import { generateServiceOrderPDF } from '../../services/pdfService';
+import { activityService } from '../../services/activityService';
+import { ServiceOrderPDFData } from '../../types/pdf.types';
+import * as ordemServicoService from '../../services/ordemServicoService';
 
 export function SchedulingPage() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clients, setClients] = useState<Schedule[]>([]);
+  const [selectedClient, setSelectedClient] = useState<Schedule | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isActivityPageOpen, setIsActivityPageOpen] = useState(false);
   const [startTime, setStartTime] = useState<string | null>(null);
   const [filters, setFilters] = useState<SchedulingFilters>({});
   const [isNewScheduleModalOpen, setIsNewScheduleModalOpen] = useState(false);
+  const [hasActiveOS, setHasActiveOS] = useState(false);
+  const [checkingActiveOS, setCheckingActiveOS] = useState(false);
   const [endTime, setEndTime] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,6 +36,40 @@ export function SchedulingPage() {
       loadSchedules();
     }
   }, [isActivityPageOpen]);
+
+  // Listener para atualizações de agendamento
+  useEffect(() => {
+    const handleScheduleUpdate = (event: CustomEvent) => {
+      console.log('Evento scheduleUpdate recebido:', event.detail);
+      const { scheduleId, status, schedule } = event.detail;
+      
+      console.log('Atualizando agendamento:', { scheduleId, status });
+      
+      // Atualiza o estado local
+      setClients(prevClients => {
+        console.log('Clientes antes da atualização:', prevClients.map(c => ({ id: c.id, status: c.status })));
+        const updatedClients = prevClients.map(client =>
+          client.id === scheduleId
+            ? { ...client, status: status as Schedule['status'] }
+            : client
+        );
+        console.log('Clientes após a atualização:', updatedClients.map(c => ({ id: c.id, status: c.status })));
+        return updatedClients;
+      });
+      
+      // Se o agendamento selecionado foi atualizado, atualiza ele também
+      if (selectedClient && selectedClient.id === scheduleId) {
+        console.log('Atualizando agendamento selecionado:', { selectedClientId: selectedClient.id, newStatus: status });
+        setSelectedClient(prev => prev ? { ...prev, status: status as Schedule['status'] } : null);
+      }
+    };
+
+    window.addEventListener('scheduleUpdate', handleScheduleUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('scheduleUpdate', handleScheduleUpdate as EventListener);
+    };
+  }, [selectedClient]);
 
   async function loadSchedules() {
     try {
@@ -40,60 +83,67 @@ export function SchedulingPage() {
         }
       }
     } catch (error) {
-      toast.error('Erro ao carregar agendamentos');
+      // toast.error('Erro ao carregar agendamentos');
+      console.error('Erro ao carregar agendamentos:', error);
     }
   }
 
-  const handleClientClick = (client: Client) => {
+  const handleClientClick = async (client: Schedule) => {
     setSelectedClient(client);
     setIsModalOpen(true);
+    
+    // Verifica assincronamente se há uma OS ativa para este agendamento
+    setCheckingActiveOS(true);
+    try {
+      const isActive = await hasActiveScheduleAsync(client.id);
+      setHasActiveOS(isActive);
+    } catch (error) {
+      console.error('Erro ao verificar OS ativa:', error);
+      // Fallback para verificação síncrona
+      const isActiveSync = await hasActiveSchedule(client.id);
+      setHasActiveOS(isActiveSync);
+    } finally {
+      setCheckingActiveOS(false);
+    }
   };
 
   const handleStartService = async () => {
     if (!selectedClient) return;
 
     try {
+      await ordemServicoService.createServiceOrder(selectedClient);
+
+      // 2. Atualiza o estado local para refletir o início do serviço
       const now = new Date();
       const formattedStartTime = format(now, 'HH:mm', { locale: ptBR });
       
-      // Atualiza o serviço com o horário de início
-      await schedulingService.updateScheduleStatus(selectedClient.id, 'inProgress', formattedStartTime);
-      
-      // Atualiza o estado local
       setStartTime(formattedStartTime);
+      setClients(prevClients =>
+        prevClients.map(c =>
+          c.id === selectedClient.id
+            ? { ...c, status: 'in_progress' as const, startTime: formattedStartTime }
+            : c
+        )
+      );
       setSelectedClient(prev => prev ? {
         ...prev,
-        status: 'inProgress',
+        status: 'in_progress' as const,
         startTime: formattedStartTime
       } : null);
       
+      // 3. Abre a página de atividade
       setIsModalOpen(false);
       setIsActivityPageOpen(true);
       
-      // Recarrega os dados
-      await loadSchedules();
-    } catch (error) {
-      toast.error('Erro ao iniciar serviço');
-    }
-  };
-
-  const loadClientData = async (clientId: string) => {
-    try {
-      const client = await schedulingService.getScheduleById(clientId);
-      if (client) {
-        setSelectedClient(client);
-        setStartTime(client.startTime || null);
+    } catch (error: any) {
+      console.error('Erro ao iniciar serviço:', error);
+      // toast.error(`Erro ao iniciar serviço: ${error.message}`);
+      if (error.message.includes('duplicate key value violates unique constraint')) {
+        // toast.error('Você já possui uma Ordem de Serviço em andamento. Finalize-a antes de iniciar uma nova.');
+        console.error('Tentativa de iniciar uma segunda OS em andamento pelo mesmo usuário.');
       }
-    } catch (error) {
-      toast.error('Erro ao carregar dados do cliente');
     }
   };
-
-  useEffect(() => {
-    if (isActivityPageOpen && selectedClient) {
-      loadClientData(selectedClient.id);
-    }
-  }, [isActivityPageOpen]);
 
   useEffect(() => {
     if (selectedClient) {
@@ -104,24 +154,93 @@ export function SchedulingPage() {
   const handleFinishService = async () => {
     if (!selectedClient) return;
 
+    console.log('Iniciando finalização do serviço para agendamento:', selectedClient);
+
     try {
       const now = new Date();
-      setEndTime(format(now, 'HH:mm', { locale: ptBR }));
-
-      await schedulingService.updateScheduleStatus(selectedClient.id, 'completed');
+      const formattedEndTime = format(now, 'HH:mm', { locale: ptBR });
+      setEndTime(formattedEndTime);
       
-      setSelectedClient(prev => prev ? { ...prev, status: 'completed' } : null);
+      const activeOrder = await activityService.getActiveServiceOrder();
+      if (!activeOrder) {
+        throw new Error("Nenhuma ordem de serviço ativa encontrada para finalizar.");
+      }
+      
+      console.log('Ordem de serviço ativa encontrada:', activeOrder);
+      
+      const serviceList = await activityService.loadServiceList(activeOrder.id);
+      const pestCounts = await activityService.loadPestCounts(activeOrder.id);
+      const devices = await activityService.loadDevices(activeOrder.id);
+
+      const pdfData: ServiceOrderPDFData = {
+        orderNumber: activeOrder.id.substring(0, 8),
+        date: format(new Date(), 'dd/MM/yyyy'),
+        startTime: startTime || '',
+        endTime: formattedEndTime,
+        client: {
+          name: selectedClient.clientName,
+          address: selectedClient.clientAddress || '',
+          city: '',
+          contact: selectedClient.clientContact || '',
+          phone: selectedClient.clientPhone || '',
+          email: '',
+          code: '',
+          branch: '',
+          document: ''
+        },
+        services: serviceList.map(item => ({
+          type: item.serviceType,
+          target: item.targetPest,
+          product: item.product,
+          location: item.location,
+        })),
+        devices: devices.map(d => ({
+          type: d.type,
+          quantity: parseInt(d.quantity || '0'),
+          status: [],
+          list: []
+        })),
+        pestCounts: pestCounts,
+        observations: activeOrder.observations || '',
+        signatures: {
+          serviceResponsible: 'Técnico Exemplo',
+          technicalResponsible: 'Técnico Exemplo',
+          clientRepresentative: ''
+        },
+      };
+
+      await generateServiceOrderPDF(pdfData);
+
+      // Atualiza a OS para 'completed'
+      console.log('Atualizando OS para concluído...');
+      const { data: orderData, error: orderError } = await supabase
+        .from('service_orders')
+        .update({ status: 'completed', end_time: new Date().toISOString() })
+        .eq('id', activeOrder.id);
+      
+      console.log('Resultado da atualização da OS:', { orderData, orderError });
+      if (orderError) {
+        throw new Error(`Erro ao atualizar a Ordem de Serviço: ${orderError.message}`);
+      }
+
+      // Atualiza o agendamento para 'completed'
+      console.log('Atualizando agendamento para concluído... ID:', selectedClient.id);
+      await ordemServicoService.updateScheduleStatus(selectedClient.id, 'completed');
+
+      console.log('Agendamento atualizado para concluído com sucesso');
+
+      activityService.cleanupActivityData(activeOrder.id);
       
       setIsActivityPageOpen(false);
       
+      // Força recarregamento dos agendamentos para garantir sincronização
+      console.log('Recarregando agendamentos...');
       await loadSchedules();
       
-      toast.success('Serviço finalizado com sucesso!');
+      console.log('Serviço finalizado com sucesso! O status foi atualizado automaticamente via evento.');
 
-      // Gera relatório ou ordem de serviço se necessário
-      // TODO: Implementar geração de relatório
     } catch (error) {
-      toast.error('Erro ao finalizar serviço');
+      console.error('Erro ao finalizar serviço:', error);
     }
   };
 
@@ -129,13 +248,32 @@ export function SchedulingPage() {
     <div className="container mx-auto px-4 py-8 pb-36">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-800">Agendamentos</h1>
-        <button
-          onClick={() => setIsNewScheduleModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Agendamento
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              console.log('Testando evento manualmente...');
+              const testEvent = new CustomEvent('scheduleUpdate', {
+                detail: {
+                  scheduleId: selectedClient?.id || 'test-id',
+                  status: 'completed',
+                  schedule: selectedClient,
+                  timestamp: new Date().toISOString()
+                }
+              });
+              window.dispatchEvent(testEvent);
+            }}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            Testar Evento
+          </button>
+          <button
+            onClick={() => setIsNewScheduleModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Agendamento
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -143,12 +281,12 @@ export function SchedulingPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <select
             className="form-select"
-            onChange={(e) => setFilters(f => ({ ...f, status: e.target.value as Client['status'] }))}
+            onChange={(e) => setFilters(f => ({ ...f, status: e.target.value as Schedule['status'] }))}
             value={filters.status || ''}
           >
             <option value="">Todos os status</option>
-            <option value="scheduled">Agendado</option>
-            <option value="inProgress">Em andamento</option>
+            <option value="pending">Agendado</option>
+            <option value="in_progress">Em andamento</option>
             <option value="completed">Concluído</option>
           </select>
 
@@ -180,7 +318,7 @@ export function SchedulingPage() {
           >
             <div className="flex items-center mb-4">
               <User className="w-5 h-5 text-gray-500 mr-2" />
-              <h2 className="text-xl font-semibold">{client.name}</h2>
+              <h2 className="text-xl font-semibold">{client.clientName}</h2>
             </div>
 
             <div className="space-y-2 text-gray-600">
@@ -191,22 +329,22 @@ export function SchedulingPage() {
 
               <div className="flex items-center">
                 <Clock className="w-4 h-4 mr-2" />
-                <span>{client.time}</span>
+                <span>{client.startTime} - {client.endTime}</span>
               </div>
 
               <div className="flex items-center">
                 <MapPin className="w-4 h-4 mr-2" />
-                <span className="truncate">{client.address}</span>
+                <span className="truncate">{client.clientAddress}</span>
               </div>
 
               <div className="mt-4">
                 <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium
-                  ${client.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                  client.status === 'inProgress' ? 'bg-yellow-100 text-yellow-800' :
+                  ${client.status === 'pending' ? 'bg-blue-100 text-blue-800' :
+                  client.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' :
                   'bg-green-100 text-green-800'}`}
                 >
-                  {client.status === 'scheduled' ? 'Agendado' :
-                   client.status === 'inProgress' ? 'Em andamento' :
+                  {client.status === 'pending' ? 'Agendado' :
+                   client.status === 'in_progress' ? 'Em andamento' :
                    'Concluído'}
                 </span>
               </div>
@@ -239,30 +377,30 @@ export function SchedulingPage() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <User className="w-5 h-5 text-gray-500" />
-                    <span>{selectedClient.name}</span>
+                    <span>{selectedClient.clientName}</span>
                   </div>
                   
                   <div className="flex items-start gap-2">
                     <MapPin className="w-5 h-5 text-gray-500 mt-1" />
-                    <span className="flex-1">{selectedClient.address}</span>
+                    <span className="flex-1">{selectedClient.clientAddress}</span>
                   </div>
                   
                   <div className="flex items-center gap-2">
                     <User className="w-5 h-5 text-gray-500" />
-                    <span>Contato: {selectedClient.contact || 'Não informado'}</span>
+                    <span>Contato: {selectedClient.clientContact || 'Não informado'}</span>
                   </div>
                   
                   <div className="flex items-center gap-2">
                     <Phone className="w-5 h-5 text-gray-500" />
-                    <span>{selectedClient.phone}</span>
+                    <span>{selectedClient.clientPhone}</span>
                   </div>
                   
                   <div className="flex items-center gap-2">
                     <Clock className="w-5 h-5 text-gray-500" />
-                    <span>Horário: {selectedClient.time}</span>
+                    <span>Horário: {selectedClient.startTime} - {selectedClient.endTime}</span>
                   </div>
 
-                  {selectedClient.status === 'inProgress' && (
+                  {selectedClient.status === 'in_progress' && (
                     <div className="inline-flex px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
                       Em Andamento
                     </div>
@@ -271,20 +409,42 @@ export function SchedulingPage() {
               </div>
 
               <div className="flex flex-col gap-3">
-                <button
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
-                  onClick={handleStartService}
-                  disabled={selectedClient.status !== 'scheduled'}
-                >
-                  <Play className="w-5 h-5" />
-                  Iniciar OS
-                </button>
+                {checkingActiveOS ? (
+                  <button
+                    disabled
+                    className="w-full px-4 py-3 bg-gray-400 text-white rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <Play className="w-5 h-5" />
+                    Verificando...
+                  </button>
+                ) : (hasActiveOS || selectedClient.status === 'in_progress') ? (
+                  <button
+                    className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setIsActivityPageOpen(true);
+                    }}
+                  >
+                    <Play className="w-5 h-5" />
+                    Continuar
+                  </button>
+                ) : (
+                  <button
+                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+                    onClick={handleStartService}
+                    disabled={selectedClient.status !== 'pending'}
+                  >
+                    <Play className="w-5 h-5" />
+                    Iniciar OS
+                  </button>
+                )}
 
                 <button
                   className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
                   onClick={() => {
                     // Implementar função de não atendimento
-                    toast.info('Funcionalidade em desenvolvimento');
+                    // toast.info('Funcionalidade em desenvolvimento');
+    console.log('Funcionalidade em desenvolvimento');
                   }}
                 >
                   <X className="w-5 h-5" />

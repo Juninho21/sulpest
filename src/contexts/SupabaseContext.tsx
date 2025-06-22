@@ -1,7 +1,7 @@
 import React, { createContext, useContext, ReactNode, useEffect } from 'react';
 import { useSupabase } from '../hooks/useSupabase';
 import { useSupabaseData } from '../hooks/useSupabaseData';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify'; // Removido
 
 interface SupabaseContextData {
   isConnected: boolean;
@@ -69,10 +69,10 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (connected) {
           await updateLastSync();
         } else {
-          toast.warning('Não foi possível conectar ao Supabase. Usando dados locais.');
+          // toast.warning('Não foi possível conectar ao Supabase. Usando dados locais.');
         }
       } catch (error) {
-        toast.error('Erro ao conectar ao Supabase');
+        // toast.error('Erro ao conectar ao Supabase');
       }
     };
 
@@ -105,4 +105,4 @@ export const useSupabaseContext = () => {
     throw new Error('useSupabaseContext deve ser usado dentro de um SupabaseProvider');
   }
   return context;
-}; 
+};

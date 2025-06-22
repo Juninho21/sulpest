@@ -33,7 +33,7 @@ export const SignatureCanvas = forwardRef<SignatureCanvasRef, SignatureCanvasPro
         canvas.height = parent.clientHeight;
         
         // Reconfigurar o contexto após redimensionar
-        ctx.strokeStyle = '#000';
+        ctx.strokeStyle = '#1e40af';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';

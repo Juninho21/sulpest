@@ -1,27 +1,21 @@
-# Regras do ProGuard para o SafePrag
+# Add project specific ProGuard rules here.
+# You can control the set of applied configuration files using the
+# proguardFiles setting in build.gradle.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# Manter a classe WebView e suas interfaces JavaScript
--keepclassmembers class com.safeprag.app.MainActivity {
-    public *;
-}
--keepattributes JavascriptInterface
+# If your project uses WebView with JS, uncomment the following
+# and specify the fully qualified class name to the JavaScript interface
+# class:
+#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+#   public *;
+#}
 
-# Otimizações gerais
--optimizationpasses 5
--dontusemixedcaseclassnames
--dontskipnonpubliclibraryclasses
--dontpreverify
--verbose
+# Uncomment this to preserve the line number information for
+# debugging stack traces.
+#-keepattributes SourceFile,LineNumberTable
 
-# Manter informações de linha para stack traces em produção
--keepattributes SourceFile,LineNumberTable
--renamesourcefileattribute SourceFile
-
-# Remover logs e debugging
--assumenosideeffects class android.util.Log {
-    public static *** d(...);
-    public static *** v(...);
-    public static *** i(...);
-    public static *** w(...);
-    public static *** e(...);
-}
+# If you keep the line number information, uncomment this to
+# hide the original source file name.
+#-renamesourcefileattribute SourceFile

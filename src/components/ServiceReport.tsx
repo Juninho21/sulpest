@@ -19,7 +19,7 @@ export const ServiceReport: React.FC<ServiceReportProps> = ({ devices, serviceDa
     <div className="p-8 bg-white">
       <div className="text-center mb-6">
         <h1 className="text-2xl font-bold mb-2">Ordem de Serviço</h1>
-        <p className="text-gray-600">Safeprag</p>
+        <p className="text-gray-600">Sulpest</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6">

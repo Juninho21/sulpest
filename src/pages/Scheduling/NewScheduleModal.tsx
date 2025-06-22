@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 import { schedulingService } from '../../services/schedulingService';
 
 interface NewScheduleModalProps {
@@ -14,7 +14,9 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
     name: '',
     service: '',
     date: '',
-    time: '',
+    startTime: '',
+    endTime: '',
+    duration: '',
     address: '',
     phone: '',
     email: '',
@@ -22,16 +24,37 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
     technician: ''
   });
 
+  const TIME_SLOTS = [
+    '06:00', '06:30', '07:00', '07:30', '08:00', '08:30',
+    '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+    '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
+    '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
+    '18:00', '18:30', '19:00', '19:30', '20:00'
+  ];
+
+  const DURATION_OPTIONS = [
+    '30 minutos',
+    '1 hora',
+    '1 hora e 30 minutos',
+    '2 horas',
+    '2 horas e 30 minutos',
+    '3 horas',
+    '3 horas e 30 minutos',
+    '4 horas'
+  ];
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     try {
       await schedulingService.createSchedule(formData);
-      toast.success('Agendamento criado com sucesso!');
+      // toast.success('Agendamento criado com sucesso!');
+      console.log('Agendamento criado com sucesso!');
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error('Erro ao criar agendamento');
+      // toast.error('Erro ao criar agendamento');
+      console.error('Erro ao criar agendamento');
     }
   };
 
@@ -58,7 +81,7 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do Cliente
@@ -108,16 +131,55 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Horário
+                Hora de Início
               </label>
-              <input
-                type="time"
-                name="time"
+              <select
+                name="startTime"
                 required
                 className="w-full p-2 border rounded-lg"
-                value={formData.time}
+                value={formData.startTime}
                 onChange={handleChange}
-              />
+              >
+                <option value="">Selecione o horário</option>
+                {TIME_SLOTS.map(time => (
+                  <option key={time} value={time}>{time}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Hora de Fim
+              </label>
+              <select
+                name="endTime"
+                required
+                className="w-full p-2 border rounded-lg"
+                value={formData.endTime}
+                onChange={handleChange}
+              >
+                <option value="">Selecione o horário</option>
+                {TIME_SLOTS.map(time => (
+                  <option key={time} value={time}>{time}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Duração Estimada
+              </label>
+              <select
+                name="duration"
+                className="w-full p-2 border rounded-lg"
+                value={formData.duration}
+                onChange={handleChange}
+              >
+                <option value="">Selecione a duração</option>
+                {DURATION_OPTIONS.map(duration => (
+                  <option key={duration} value={duration}>{duration}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -147,7 +209,7 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
               />
             </div>
 
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Endereço
               </label>
@@ -174,7 +236,7 @@ export function NewScheduleModal({ onClose, onSuccess }: NewScheduleModalProps) 
               />
             </div>
 
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Observações
               </label>

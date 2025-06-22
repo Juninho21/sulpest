@@ -49,9 +49,13 @@ DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE IF NOT EXISTS products (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
-  description TEXT,
-  price DECIMAL(10,2),
-  stock INTEGER DEFAULT 0,
+  active_ingredient TEXT,
+  chemical_group TEXT,
+  registration TEXT,
+  batch TEXT,
+  expiration_date DATE,
+  measure TEXT CHECK (measure IN ('ml', 'g')),
+  diluent TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -63,6 +67,7 @@ DROP TABLE IF EXISTS service_orders CASCADE;
 CREATE TABLE IF NOT EXISTS service_orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id UUID REFERENCES clients(id),
+  schedule_id UUID REFERENCES schedules(id),
   status TEXT NOT NULL,
   service_type TEXT NOT NULL,
   target_pest TEXT,
@@ -118,9 +123,16 @@ DROP TABLE IF EXISTS schedules CASCADE;
 CREATE TABLE IF NOT EXISTS schedules (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id UUID REFERENCES clients(id),
+  client_name TEXT,
+  client_phone TEXT,
   client_address TEXT,
+  service_type TEXT DEFAULT 'Controle de Pragas',
   date DATE NOT NULL,
   time TIME,
+  start_time TIME,
+  duration TEXT DEFAULT '60',
+  technician TEXT DEFAULT 'Técnico',
+  notes TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -340,4 +352,4 @@ BEGIN
         FOR EACH ROW
         EXECUTE FUNCTION update_updated_at_column();
     END IF;
-END $$; 
+END $$;

@@ -1,4 +1,4 @@
-app = "safeprag"
+app = "sulpest"
 
 [http_service]
   internal_port = 80

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabase';
-import { toast } from 'react-toastify';
+import { Logo } from '../Logo';
+// import { toast } from 'react-toastify'; // Removido
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -10,7 +11,7 @@ export function Login() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    toast.dismiss(); // Limpa todos os toasts ao entrar na tela de login
+    // toast.dismiss(); // Limpa todos os toasts ao entrar na tela de login // Removido
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -38,11 +39,7 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <img
-            className="mx-auto h-24 w-auto"
-            src="/img/logo_transparent.png"
-            alt="SafePrag Logo"
-          />
+          <Logo size="xl" />
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Acesse sua conta
           </h2>

@@ -1,50 +1,28 @@
 import { v4 as uuidv4 } from 'uuid';
-import { ServiceOrder } from '../types/serviceOrder';
 import { Schedule } from '../types/schedule';
+import { ServiceOrder } from '../types/serviceOrder';
 import { STORAGE_KEYS } from './storageKeys';
+import { supabase } from '../config/supabase';
 
-// Função para verificar se existe uma OS em andamento
-export const hasActiveServiceOrder = (): boolean => {
-  console.log('Verificando se existe OS em andamento...');
-  
-  // Primeiro, limpa ordens antigas
-  cleanupServiceOrders();
-  
-  const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-  if (!savedOrders) {
-    console.log('Nenhuma OS encontrada');
-    return false;
-  }
+// Função removida - a lógica de apenas uma OS ativa é garantida pela limpeza automática
 
-  const orders: ServiceOrder[] = JSON.parse(savedOrders);
-  console.log('Total de ordens:', orders.length);
-  
-  // Filtra apenas ordens do dia atual
-  const today = new Date().toISOString().split('T')[0];
-  const activeOrders = orders.filter(order => {
-    const orderDate = order.date;
-    return orderDate === today && order.status === 'in_progress';
-  });
-
-  console.log('Ordens ativas hoje:', activeOrders);
-  return activeOrders.length > 0;
-};
-
-// Verifica se um agendamento específico já está em andamento
-export const hasActiveSchedule = (scheduleId: string): boolean => {
+// Verifica se um agendamento específico já está em andamento (usando Supabase)
+export const hasActiveSchedule = async (scheduleId: string): Promise<boolean> => {
   console.log('Verificando se o agendamento está em andamento:', scheduleId);
   try {
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    if (!savedOrders) {
-      console.log('Nenhuma OS encontrada');
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('schedule_id', scheduleId)
+      .eq('status', 'in_progress');
+    
+    if (error) {
+      console.error('Erro ao verificar agendamento em andamento:', error);
       return false;
     }
-
-    const orders: ServiceOrder[] = JSON.parse(savedOrders);
-    const hasActive = orders.some(
-      order => order.scheduleId === scheduleId && order.status === 'in_progress'
-    );
-    console.log('Agendamento em andamento:', hasActive);
+    
+    const hasActive = orders && orders.length > 0;
+    console.log('Agendamento em andamento:', hasActive, 'Orders found:', orders?.length || 0);
     return hasActive;
   } catch (error) {
     console.error('Erro ao verificar agendamento em andamento:', error);
@@ -52,11 +30,50 @@ export const hasActiveSchedule = (scheduleId: string): boolean => {
   }
 };
 
-// Função para obter todas as ordens de serviço
-export const getAllServiceOrders = (): ServiceOrder[] => {
+// Verifica se um agendamento específico já está em andamento (versão assíncrona - Supabase)
+export const hasActiveScheduleAsync = async (scheduleId: string): Promise<boolean> => {
+  console.log('Verificando se o agendamento está em andamento (Supabase):', scheduleId);
   try {
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    return savedOrders ? JSON.parse(savedOrders) : [];
+    // Consulta diretamente no Supabase
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('schedule_id', scheduleId)
+      .eq('status', 'in_progress');
+    
+    if (error) {
+      console.error('Erro ao consultar Supabase:', error);
+      // Fallback para localStorage em caso de erro
+      return hasActiveSchedule(scheduleId);
+    }
+    
+    const hasActive = orders && orders.length > 0;
+    console.log('Agendamento em andamento (Supabase):', hasActive, 'Orders found:', orders?.length || 0);
+    
+    // Dados já estão no Supabase, não precisa atualizar localStorage
+    
+    return hasActive;
+  } catch (error) {
+    console.error('Erro ao verificar agendamento em andamento (Supabase):', error);
+    // Fallback para localStorage em caso de erro
+    return hasActiveSchedule(scheduleId);
+  }
+};
+
+// Função para obter todas as ordens de serviço (usando Supabase)
+export const getAllServiceOrders = async (): Promise<ServiceOrder[]> => {
+  try {
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Erro ao buscar ordens de serviço:', error);
+      return [];
+    }
+    
+    return orders || [];
   } catch (error) {
     console.error('Erro ao obter ordens de serviço:', error);
     return [];
@@ -64,25 +81,106 @@ export const getAllServiceOrders = (): ServiceOrder[] => {
 };
 
 // Função para obter todas as ordens de serviço
-export const getServiceOrders = (): ServiceOrder[] => {
-  const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-  if (!savedOrders) return [];
-  return JSON.parse(savedOrders);
+export const getServiceOrders = async (): Promise<ServiceOrder[]> => {
+  return await getAllServiceOrders();
 };
 
-// Função para criar uma nova OS
-export const createServiceOrder = (schedule: Schedule): ServiceOrder => {
+// Função para forçar a limpeza de ordens ativas
+export const forceCleanupActiveOrders = async (): Promise<void> => {
+  try {
+    console.log('Iniciando limpeza forçada de ordens ativas...');
+    
+    // Busca todas as ordens com status 'in_progress'
+    const { data: activeOrders, error: fetchError } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('status', 'in_progress');
+    
+    if (fetchError) {
+      console.error('Erro ao buscar ordens ativas:', fetchError);
+      return;
+    }
+    
+    if (!activeOrders || activeOrders.length === 0) {
+      console.log('Nenhuma ordem ativa encontrada.');
+      return;
+    }
+    
+    console.log(`Encontradas ${activeOrders.length} ordens ativas. Finalizando...`);
+    
+    // Finaliza todas as ordens ativas
+    for (const order of activeOrders) {
+      const { error: updateError } = await supabase
+        .from('service_orders')
+        .update({
+          status: 'completed',
+          end_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id);
+      
+      if (updateError) {
+        console.error(`Erro ao finalizar ordem ${order.id}:`, updateError);
+      } else {
+        console.log(`Ordem ${order.id} finalizada automaticamente.`);
+      }
+    }
+    
+    // Limpa dados relacionados do localStorage
+    localStorage.removeItem('pestCounts');
+    localStorage.removeItem('retroactive_service_data');
+    localStorage.removeItem('serviceStartTime');
+    
+    console.log('Limpeza de ordens ativas concluída.');
+  } catch (error) {
+    console.error('Erro durante limpeza de ordens ativas:', error);
+  }
+};
+
+// Função para criar uma nova OS (usando Supabase)
+export const createServiceOrder = async (schedule: Schedule): Promise<ServiceOrder> => {
   console.log('Criando nova ordem de serviço para o agendamento:', schedule);
 
   try {
-    // Verifica se já existe uma OS em andamento
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    if (savedOrders) {
-      const orders: ServiceOrder[] = JSON.parse(savedOrders);
-      const hasActiveOrder = orders.some(order => order.status === 'in_progress');
-      if (hasActiveOrder) {
-        throw new Error('Já existe uma ordem de serviço em andamento');
+    // Obter o usuário logado
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error("Usuário não autenticado. Não é possível criar uma Ordem de Serviço.");
+    }
+
+    // Verifica se o agendamento existe no Supabase
+    const { data: scheduleData, error: scheduleError } = await supabase
+      .from('schedules')
+      .select('id')
+      .eq('id', schedule.id);
+
+    if (scheduleError) {
+      console.error('Erro ao consultar agendamento no Supabase:', scheduleError);
+      throw new Error('Erro ao verificar agendamento no Supabase');
+    }
+
+    if (!scheduleData || scheduleData.length === 0) {
+      console.log('Agendamento não encontrado no Supabase, criando...');
+      // Tenta salvar o agendamento no Supabase primeiro
+      const { error: insertError } = await supabase
+        .from('schedules')
+        .insert({
+          id: schedule.id,
+          client_id: null,
+          client_address: schedule.clientAddress || '',
+          date: schedule.date,
+          time: schedule.time || null,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      
+      if (insertError) {
+        console.error('Erro ao salvar agendamento no Supabase:', insertError);
+        throw new Error('Agendamento não encontrado e não foi possível criá-lo no Supabase');
       }
+      
+      console.log('Agendamento salvo no Supabase com sucesso');
     }
 
     // Cria a nova OS com o horário atual
@@ -112,26 +210,44 @@ export const createServiceOrder = (schedule: Schedule): ServiceOrder => {
       signatures: {
         client: '',
         technician: ''
-      }
+      },
+      productAmount: '',
+      targetPest: '',
+      location: '',
+      observations: '',
+      applicationMethod: ''
     };
 
-    // Carrega as ordens existentes
-    const orders: ServiceOrder[] = savedOrders ? JSON.parse(savedOrders) : [];
+    // Salva no Supabase
+    const { error } = await supabase
+      .from('service_orders')
+      .insert({
+        id: serviceOrder.id,
+        user_id: user.id,
+        client_id: serviceOrder.clientId,
+        schedule_id: serviceOrder.scheduleId,
+        status: serviceOrder.status,
+        service_type: serviceOrder.serviceType,
+        target_pest: serviceOrder.targetPest || '',
+        location: serviceOrder.location || '',
+        observations: serviceOrder.observations || '',
+        application_method: serviceOrder.applicationMethod || '',
+        product_amount: serviceOrder.productAmount ? parseFloat(serviceOrder.productAmount) : null,
+        start_time: now.toISOString(),
+        end_time: null,
+        created_at: now.toISOString()
+      });
     
-    // Adiciona a nova OS
-    orders.push(serviceOrder);
-    
-    // Salva no localStorage
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(orders));
-    
-    // Salva o horário de início no localStorage
-    localStorage.setItem('serviceStartTime', now.toISOString());
+    if (error) {
+      console.error('Erro ao salvar OS no Supabase:', error);
+      throw error;
+    }
     
     console.log('Nova OS criada:', serviceOrder);
     console.log('Status da OS:', serviceOrder.status);
 
     // Atualiza o status do agendamento para "in_progress"
-    updateScheduleStatus(schedule.id, 'in_progress');
+    await updateScheduleStatus(schedule.id, 'in_progress');
 
     // Dispara evento de atualização de OS
     const updateEvent = new CustomEvent('serviceOrderUpdate', {
@@ -144,14 +260,28 @@ export const createServiceOrder = (schedule: Schedule): ServiceOrder => {
     });
     window.dispatchEvent(updateEvent);
 
+    // Limpa dados da página de atividade antes de iniciar nova OS
+    localStorage.removeItem('pestCounts');
+    localStorage.removeItem('retroactive_service_data');
+    
     // Dispara evento específico de início de OS
     const startEvent = new CustomEvent('serviceStart', {
       detail: {
         serviceOrder,
-        startTime: now
+        startTime: now,
+        clearPreviousData: true
       }
     });
     window.dispatchEvent(startEvent);
+    
+    // Dispara evento para limpar dados da página de atividade
+    const cleanupEvent = new CustomEvent('serviceActivityCleanup', {
+      detail: {
+        orderId: serviceOrder.id,
+        newOrder: true
+      }
+    });
+    window.dispatchEvent(cleanupEvent);
 
     return serviceOrder;
   } catch (error) {
@@ -161,7 +291,7 @@ export const createServiceOrder = (schedule: Schedule): ServiceOrder => {
 };
 
 // Função para registrar não atendimento
-export const registerNoService = (schedule: Schedule, reason: string): ServiceOrder => {
+export const registerNoService = async (schedule: Schedule, reason: string): Promise<ServiceOrder> => {
   try {
     const now = new Date().toISOString();
     
@@ -186,11 +316,10 @@ export const registerNoService = (schedule: Schedule, reason: string): ServiceOr
     // Adiciona a nova OS
     allOrders.push(serviceOrder);
     
-    // Salva no localStorage
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(allOrders));
+    // Dados já salvos no Supabase, não precisa salvar no localStorage
 
     // Atualiza o status do agendamento
-    updateScheduleStatus(schedule.id, 'cancelled');
+    await updateScheduleStatus(schedule.id, 'cancelled');
 
     return serviceOrder;
   } catch (error) {
@@ -199,25 +328,32 @@ export const registerNoService = (schedule: Schedule, reason: string): ServiceOr
   }
 };
 
-// Função para finalizar uma ordem de serviço
+// Função para finalizar uma ordem de serviço (usando Supabase)
 export const finishServiceOrder = async (orderId: string): Promise<void> => {
   try {
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    if (!savedOrders) {
-      throw new Error('Nenhuma ordem de serviço encontrada');
+    // Primeiro, força a limpeza de qualquer ordem ativa para garantir que apenas uma OS esteja ativa
+    await forceCleanupActiveOrders();
+    
+    // Busca a ordem de serviço no Supabase
+    const { data: orders, error: fetchError } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('id', orderId);
+
+    if (fetchError) {
+      console.error('Erro ao buscar ordem de serviço:', fetchError);
+      throw new Error('Erro ao buscar ordem de serviço');
     }
 
-    const orders: ServiceOrder[] = JSON.parse(savedOrders);
-    const orderIndex = orders.findIndex(order => order.id === orderId);
-
-    if (orderIndex === -1) {
+    if (!orders || orders.length === 0) {
       throw new Error('Ordem de serviço não encontrada');
     }
 
+    const order = orders[0];
+
     // Verifica se o campo tratamento está preenchido quando necessário
-    const order = orders[orderIndex];
     const treatmentTypes = ['pulverizacao', 'atomizacao', 'termonebulizacao', 'polvilhamento', 'iscagem_gel'];
-    if (treatmentTypes.includes(order.serviceType.toLowerCase()) && !order.treatment) {
+    if (treatmentTypes.includes(order.service_type?.toLowerCase() || '') && !order.treatment) {
       throw new Error('O campo tratamento é obrigatório para este tipo de serviço');
     }
 
@@ -229,77 +365,108 @@ export const finishServiceOrder = async (orderId: string): Promise<void> => {
       hour12: false
     });
 
-    // Atualiza o status da OS
-    orders[orderIndex] = {
-      ...orders[orderIndex],
-      status: 'completed',
-      endTime: formattedEndTime,
-      updatedAt: now.toISOString()
-    };
+    // Atualiza o status da OS no Supabase
+    const { error: updateError } = await supabase
+      .from('service_orders')
+      .update({
+        status: 'completed',
+        end_time: now.toISOString(),
+        updated_at: now.toISOString()
+      })
+      .eq('id', orderId);
 
-    // Salva as alterações no localStorage
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(orders));
+    if (updateError) {
+      console.error('Erro ao atualizar ordem de serviço:', updateError);
+      throw new Error('Erro ao finalizar ordem de serviço');
+    }
 
     // Atualiza o status do agendamento para completed
-    await updateScheduleStatus(orders[orderIndex].scheduleId, 'completed');
+    await updateScheduleStatus(order.schedule_id, 'completed');
 
     // Gera o PDF da ordem de serviço e adiciona à lista de downloads
     try {
-      // Busca os dados necessários para gerar o PDF
-      const clientsStr = localStorage.getItem('safeprag_clients');
-      const clients = clientsStr ? JSON.parse(clientsStr) : [];
-      const client = clients.find((c: any) => c.id === order.clientId);
+      // Busca os dados do cliente no Supabase
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', order.client_id);
+      
+      const client = clients?.[0];
       
       // Prepara os dados para o PDF
       const pdfData = {
         orderNumber: order.id,
-        date: order.date,
-        startTime: order.startTime,
+        date: order.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+        startTime: order.start_time ? new Date(order.start_time).toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }) : '',
         endTime: formattedEndTime,
         client: {
-          name: client?.name || order.clientName,
-          address: client?.address || order.clientAddress
+          name: client?.name || '',
+          address: client?.address || ''
         },
         service: {
-          type: order.serviceType
+          type: order.service_type || ''
         }
       };
       
-      // Adiciona a OS à lista de downloads
-      const storedPDFs = JSON.parse(localStorage.getItem('safeprag_service_order_pdfs') || '{}');
-      storedPDFs[order.id] = {
-        orderNumber: order.id,
-        createdAt: now.toISOString(),
-        clientName: order.clientName,
-        serviceType: order.serviceType
-      };
+      // Salva os dados do PDF no Supabase (tabela service_order_pdfs)
+      const { error: pdfError } = await supabase
+        .from('service_order_pdfs')
+        .upsert({
+          order_id: order.id,
+          order_number: order.id,
+          client_name: client?.name || '',
+          service_type: order.service_type || '',
+          created_at: now.toISOString()
+        });
       
-      localStorage.setItem('safeprag_service_order_pdfs', JSON.stringify(storedPDFs));
+      if (pdfError) {
+        console.error('Erro ao salvar dados do PDF:', pdfError);
+      }
     } catch (error) {
-      console.error('Erro ao adicionar OS à lista de downloads:', error);
-      // Continua a execução mesmo se houver erro ao adicionar à lista de downloads
+      console.error('Erro ao processar dados do PDF:', error);
+      // Continua a execução mesmo se houver erro ao processar o PDF
     }
 
+    // Limpa os dados da página de atividade após finalizar a OS
+    localStorage.removeItem('serviceStartTime');
+    localStorage.removeItem('pestCounts');
+    localStorage.removeItem('currentServiceOrder');
+    localStorage.removeItem('activeServiceOrder');
+    localStorage.removeItem('retroactive_service_data');
+    
     // Dispara evento de atualização
     const event = new CustomEvent('serviceOrderUpdate', {
       detail: {
         orderId: orderId,
-        scheduleId: orders[orderIndex].scheduleId,
+        scheduleId: order.schedule_id,
         status: 'completed',
         endTime: formattedEndTime
       }
     });
     window.dispatchEvent(event);
+    
+    // Dispara evento específico para limpar dados da página de atividade
+    const cleanupEvent = new CustomEvent('serviceActivityCleanup', {
+      detail: {
+        orderId: orderId,
+        success: true
+      }
+    });
+    window.dispatchEvent(cleanupEvent);
   } catch (error) {
     console.error('Erro ao finalizar ordem de serviço:', error);
     throw error;
   }
 };
 
-// Função para finalizar todas as OS em andamento
-export const finishAllActiveServiceOrders = (): void => {
+// Função para finalizar todas as OS em andamento (usando Supabase)
+export const finishAllActiveServiceOrders = async (): Promise<void> => {
   try {
-    const allOrders = getAllServiceOrders();
     const now = new Date();
     const currentTime = now.toLocaleTimeString('pt-BR', {
       hour: '2-digit',
@@ -307,26 +474,30 @@ export const finishAllActiveServiceOrders = (): void => {
       hour12: false
     });
 
-    const updatedOrders = allOrders.map(order => {
-      if (order.status === 'in_progress') {
-        return {
-          ...order,
-          status: 'completed',
-          endTime: currentTime,
-          updatedAt: now.toISOString()
-        };
-      }
-      return order;
-    });
+    // Atualiza todas as ordens em andamento no Supabase
+    const { data: updatedOrders, error } = await supabase
+      .from('service_orders')
+      .update({
+        status: 'completed',
+        end_time: currentTime,
+        updated_at: now.toISOString()
+      })
+      .eq('status', 'in_progress')
+      .select();
 
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(updatedOrders));
+    if (error) {
+      console.error('Erro ao finalizar ordens de serviço no Supabase:', error);
+      throw new Error('Erro ao finalizar ordens de serviço');
+    }
 
     // Atualizar o status dos agendamentos relacionados
-    updatedOrders.forEach(order => {
-      if (order.status === 'completed') {
-        updateScheduleStatus(order.scheduleId, 'completed');
-      }
-    });
+    if (updatedOrders) {
+      await Promise.all(updatedOrders.map(async (order) => {
+         if (order.status === 'completed') {
+           await updateScheduleStatus(order.schedule_id, 'completed');
+         }
+       }));
+    }
 
     // Limpa o status dos agendamentos pendentes do dia
     clearPendingSchedules();
@@ -335,59 +506,69 @@ export const finishAllActiveServiceOrders = (): void => {
   }
 };
 
-// Função para limpar o status dos agendamentos pendentes do dia
-const clearPendingSchedules = () => {
+// Função para sincronizar status dos agendamentos com ordens de serviço (usando Supabase)
+const syncScheduleStatusWithOrders = async () => {
   try {
-    const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    if (!savedSchedules) return;
-
-    const allSchedules = JSON.parse(savedSchedules);
     const today = new Date().toISOString().split('T')[0];
 
-    // Pega todas as OS do dia
-    const allOrders = getAllServiceOrders();
-    const completedOrderScheduleIds = allOrders
-      .filter(order => order.status === 'completed')
-      .map(order => order.scheduleId);
+    // Busca todas as OS completadas do dia
+    const { data: completedOrders, error: ordersError } = await supabase
+      .from('service_orders')
+      .select('schedule_id')
+      .eq('status', 'completed')
+      .gte('created_at', today)
+      .lt('created_at', new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
 
-    const updatedSchedules = allSchedules.map((schedule: Schedule) => {
-      // Só marca como concluído se for do dia atual E tiver uma OS finalizada associada
-      if (schedule.date === today && completedOrderScheduleIds.includes(schedule.id)) {
-        return { 
-          ...schedule, 
+    if (ordersError) {
+      console.error('Erro ao buscar ordens de serviço:', ordersError);
+      return;
+    }
+
+    if (completedOrders && completedOrders.length > 0) {
+      const scheduleIds = completedOrders.map(order => order.schedule_id);
+      
+      // Atualiza status dos agendamentos para completed
+      const { error: updateError } = await supabase
+        .from('schedules')
+        .update({ 
           status: 'completed',
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return schedule;
-    });
+          updated_at: new Date().toISOString()
+        })
+        .in('id', scheduleIds)
+        .eq('date', today);
 
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updatedSchedules));
+      if (updateError) {
+        console.error('Erro ao atualizar status dos agendamentos:', updateError);
+      }
+    }
   } catch (error) {
-    console.error('Erro ao limpar status dos agendamentos:', error);
+    console.error('Erro ao sincronizar status dos agendamentos:', error);
   }
 };
 
-// Função para limpar ordens de serviço antigas ou inválidas
-const cleanupServiceOrders = () => {
+// Função para limpar ordens de serviço antigas ou inválidas (usando Supabase)
+const cleanupServiceOrders = async () => {
   console.log('Limpando ordens de serviço antigas...');
-  const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-  if (!savedOrders) return;
-
-  const orders: ServiceOrder[] = JSON.parse(savedOrders);
-  const validOrders = orders.filter(order => {
-    // Remove ordens sem status definido
-    if (!order.status) return false;
-    // Remove ordens antigas (mais de 24 horas)
-    const orderDate = new Date(order.createdAt);
-    const now = new Date();
-    const diff = now.getTime() - orderDate.getTime();
-    const hours = diff / (1000 * 60 * 60);
-    return hours <= 24;
-  });
-
-  localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(validOrders));
-  console.log('Ordens de serviço limpas. Total válido:', validOrders.length);
+  
+  try {
+    // Remove ordens antigas (mais de 24 horas) do Supabase
+    const twentyFourHoursAgo = new Date();
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    
+    const { error } = await supabase
+      .from('service_orders')
+      .delete()
+      .or(`status.is.null,created_at.lt.${twentyFourHoursAgo.toISOString()}`);
+    
+    if (error) {
+      console.error('Erro ao limpar ordens antigas:', error);
+      return;
+    }
+    
+    console.log('Ordens de serviço antigas removidas do Supabase');
+  } catch (error) {
+    console.error('Erro ao limpar ordens de serviço:', error);
+  }
 };
 
 // Função para limpar todos os dados do sistema
@@ -444,26 +625,39 @@ export const updateDailySchedulesStatus = async (): Promise<void> => {
   console.log('Atualizando status dos agendamentos do dia...');
   
   try {
-    // Busca os agendamentos do localStorage
-    const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    if (!savedSchedules) {
-      console.log('Nenhum agendamento encontrado');
-      return;
-    }
-
-    const schedules: Schedule[] = JSON.parse(savedSchedules);
-    
     // Pega a data atual no formato yyyy-MM-dd
     const today = new Date().toISOString().split('T')[0];
     console.log('Data atual:', today);
 
-    // Filtra os agendamentos do dia
-    const todaySchedules = schedules.filter(schedule => schedule.date === today);
+    // Busca os agendamentos do dia no Supabase
+    const { data: todaySchedules, error: schedulesError } = await supabase
+      .from('schedules')
+      .select('*')
+      .eq('date', today);
+    
+    if (schedulesError) {
+      console.error('Erro ao buscar agendamentos:', schedulesError);
+      return;
+    }
+
+    if (!todaySchedules || todaySchedules.length === 0) {
+      console.log('Nenhum agendamento encontrado para hoje');
+      return;
+    }
+
     console.log('Agendamentos do dia:', todaySchedules);
 
-    // Busca as ordens de serviço do localStorage
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    const orders: ServiceOrder[] = savedOrders ? JSON.parse(savedOrders) : [];
+    // Busca as ordens de serviço do Supabase
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*');
+    
+    if (error) {
+      console.error('Erro ao buscar ordens de serviço:', error);
+      return;
+    }
+    
+    const serviceOrders: ServiceOrder[] = orders || [];
 
     // Para cada agendamento do dia
     for (const schedule of todaySchedules) {
@@ -472,14 +666,14 @@ export const updateDailySchedulesStatus = async (): Promise<void> => {
       const isPastSchedule = schedule.endTime <= currentTime;
 
       // Busca a ordem de serviço relacionada
-      const relatedOrder = orders.find(order => order.scheduleId === schedule.id);
+      const relatedOrder = serviceOrders.find(order => order.scheduleId === schedule.id);
 
       if (relatedOrder) {
         // Se tem OS relacionada, usa o status dela
         if (relatedOrder.status === 'completed' && schedule.status !== 'completed') {
-          await updateScheduleStatus(schedule.id, 'completed');
+          updateScheduleStatus(schedule.id, 'completed');
         } else if (relatedOrder.status === 'in_progress' && schedule.status !== 'in_progress') {
-          await updateScheduleStatus(schedule.id, 'in_progress');
+          updateScheduleStatus(schedule.id, 'in_progress');
         }
       } else if (isPastSchedule && schedule.status === 'pending') {
         // Se não tem OS e já passou do horário, marca como não atendido
@@ -503,24 +697,36 @@ export const updateSchedulesStatusByDate = async (date: string): Promise<void> =
     // Aguarda um momento para garantir que todas as atualizações anteriores foram processadas
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Busca os agendamentos do localStorage
-    const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    if (!savedSchedules) {
-      console.log('Nenhum agendamento encontrado');
+    // Busca os agendamentos da data no Supabase
+    const { data: dateSchedules, error: schedulesError } = await supabase
+      .from('schedules')
+      .select('*')
+      .eq('date', date);
+    
+    if (schedulesError) {
+      console.error('Erro ao buscar agendamentos:', schedulesError);
       return;
     }
 
-    const schedules: Schedule[] = JSON.parse(savedSchedules);
-    
-    // Filtra os agendamentos da data selecionada
-    const dateSchedules = schedules.filter(schedule => schedule.date === date);
+    if (!dateSchedules || dateSchedules.length === 0) {
+      console.log('Nenhum agendamento encontrado para a data');
+      return;
+    }
+
     console.log('Agendamentos da data:', dateSchedules);
 
-    // Busca as ordens de serviço do localStorage
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    console.log('Ordens de serviço encontradas:', savedOrders);
-    const orders: ServiceOrder[] = savedOrders ? JSON.parse(savedOrders) : [];
-    console.log('Ordens de serviço parseadas:', orders);
+    // Busca as ordens de serviço do Supabase
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*');
+    
+    if (error) {
+      console.error('Erro ao buscar ordens de serviço:', error);
+      return;
+    }
+    
+    const serviceOrders: ServiceOrder[] = orders || [];
+    console.log('Ordens de serviço encontradas:', serviceOrders);
 
     // Para cada agendamento da data
     for (const schedule of dateSchedules) {
@@ -534,7 +740,7 @@ export const updateSchedulesStatusByDate = async (date: string): Promise<void> =
       console.log('Passou do horário?', isPastSchedule);
 
       // Busca a ordem de serviço relacionada
-      const relatedOrder = orders.find(order => {
+      const relatedOrder = serviceOrders.find(order => {
         const isRelated = order.scheduleId === schedule.id;
         console.log('Verificando OS:', order.id, 'scheduleId:', order.scheduleId, 'relacionada?', isRelated);
         return isRelated;
@@ -583,58 +789,46 @@ export const updateSchedulesStatusByDate = async (date: string): Promise<void> =
 };
 
 // Função para atualizar o status dos agendamentos de uma data específica
-export const updateScheduleStatus = (scheduleId: string, status: 'pending' | 'in_progress' | 'completed' | 'cancelled'): void => {
+export const updateScheduleStatus = async (scheduleId: string, status: 'pending' | 'in_progress' | 'completed' | 'cancelled'): Promise<void> => {
   console.log(`Atualizando status do agendamento ${scheduleId} para ${status}`);
   
-  // Busca os agendamentos do localStorage
-  const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-  if (!savedSchedules) {
-    console.log('Nenhum agendamento encontrado');
-    return;
-  }
-
   try {
-    const schedules = JSON.parse(savedSchedules);
-    const scheduleIndex = schedules.findIndex((s: any) => s.id === scheduleId);
+    // Atualiza no Supabase
+    const { data: updatedSchedule, error } = await supabase
+      .from('schedules')
+      .update({ 
+        status: status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', scheduleId)
+      .select()
+      .single();
 
-    if (scheduleIndex === -1) {
-      console.log('Agendamento não encontrado');
-      return;
+    if (error) {
+      console.error('Erro ao atualizar status no Supabase:', error);
+      throw error;
     }
 
-    const updatedSchedule = {
-      ...schedules[scheduleIndex],
-      status: status,
-      updatedAt: new Date().toISOString()
-    };
-
-    // Atualiza o status do agendamento
-    schedules[scheduleIndex] = updatedSchedule;
-
-    // Salva os agendamentos atualizados
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(schedules));
-    console.log('Agendamento atualizado com sucesso:', updatedSchedule);
+    console.log('Status atualizado no Supabase com sucesso:', updatedSchedule);
 
     // Dispara evento de atualização com o agendamento completo
+    const eventDetail = {
+      scheduleId,
+      status,
+      schedule: updatedSchedule,
+      timestamp: new Date().toISOString()
+    };
+    
     const event = new CustomEvent('scheduleUpdate', {
-      detail: {
-        scheduleId,
-        status,
-        schedule: updatedSchedule,
-        timestamp: new Date().toISOString()
-      }
+      detail: eventDetail
     });
-    console.log('Disparando evento scheduleUpdate com detalhes:', event.detail);
-    window.dispatchEvent(event);
-
-    // Dispara evento de storage manualmente para garantir que outros componentes sejam notificados
-    const storageEvent = new StorageEvent('storage', {
-      key: STORAGE_KEYS.SCHEDULES,
-      newValue: JSON.stringify(schedules),
-      url: window.location.href
-    });
-    console.log('Disparando evento storage');
-    window.dispatchEvent(storageEvent);
+    
+    console.log('Disparando evento scheduleUpdate com detalhes:', eventDetail);
+    console.log('Evento criado:', event);
+    
+    // Verifica se o evento foi disparado corretamente
+    const dispatched = window.dispatchEvent(event);
+    console.log('Evento disparado com sucesso:', dispatched);
 
   } catch (error) {
     console.error('Erro ao atualizar status do agendamento:', error);
@@ -642,32 +836,24 @@ export const updateScheduleStatus = (scheduleId: string, status: 'pending' | 'in
   }
 };
 
-// Função para aprovar uma ordem de serviço
+// Função para aprovar uma ordem de serviço (usando Supabase)
 export const approveServiceOrder = async (orderId: string): Promise<void> => {
   try {
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    if (!savedOrders) {
-      throw new Error('Nenhuma ordem de serviço encontrada');
-    }
-
-    const orders: ServiceOrder[] = JSON.parse(savedOrders);
-    const orderIndex = orders.findIndex(order => order.id === orderId);
-
-    if (orderIndex === -1) {
-      throw new Error('Ordem de serviço não encontrada');
-    }
-
     const now = new Date();
 
-    // Atualiza o status da OS
-    orders[orderIndex] = {
-      ...orders[orderIndex],
-      status: 'approved',
-      updatedAt: now.toISOString()
-    };
+    // Atualiza o status da OS no Supabase
+    const { error } = await supabase
+      .from('service_orders')
+      .update({
+        status: 'approved',
+        updated_at: now.toISOString()
+      })
+      .eq('id', orderId);
 
-    // Salva as alterações no localStorage
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(orders));
+    if (error) {
+      console.error('Erro ao aprovar ordem de serviço no Supabase:', error);
+      throw new Error('Erro ao aprovar ordem de serviço');
+    }
 
     // Dispara evento de atualização
     const event = new CustomEvent('serviceOrderUpdate', {
@@ -683,49 +869,84 @@ export const approveServiceOrder = async (orderId: string): Promise<void> => {
   }
 };
 
-// Função para obter todas as ordens de serviço finalizadas
-export const getFinishedServiceOrders = (): ServiceOrder[] => {
+// Função para obter todas as ordens de serviço finalizadas (usando Supabase)
+export const getFinishedServiceOrders = async (): Promise<ServiceOrder[]> => {
   try {
-    const savedOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    if (!savedOrders) {
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*')
+      .in('status', ['completed', 'approved'])
+      .not('end_time', 'is', null)
+      .order('end_time', { ascending: false });
+    
+    if (error) {
+      console.error('Erro ao buscar ordens finalizadas:', error);
       return [];
     }
-
-    const orders: ServiceOrder[] = JSON.parse(savedOrders);
-    // Filtra ordens finalizadas (que têm endTime e status completed ou approved)
-    const finishedOrders = orders.filter(order => 
-      order.endTime && (order.status === 'completed' || order.status === 'approved')
-    );
     
-    // Ordena por data de finalização, mais recentes primeiro
-    return finishedOrders.sort((a, b) => {
-      const dateA = new Date(a.endTime || 0).getTime();
-      const dateB = new Date(b.endTime || 0).getTime();
-      return dateB - dateA;
-    });
+    return orders || [];
   } catch (error) {
     console.error('Erro ao obter ordens finalizadas:', error);
     return [];
   }
 };
 
-// Função para salvar uma ordem de serviço
-export const saveServiceOrder = (order: ServiceOrder): void => {
+// Função para obter a ordem de serviço ativa (usando Supabase)
+export const getActiveServiceOrder = async (): Promise<ServiceOrder | null> => {
   try {
-    const existingOrders = localStorage.getItem(STORAGE_KEYS.SERVICE_ORDERS);
-    let orders: ServiceOrder[] = existingOrders ? JSON.parse(existingOrders) : [];
+    const { data: orders, error } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('status', 'in_progress')
+      .limit(1);
     
-    // Se a ordem já existe, atualiza
-    const index = orders.findIndex(o => o.id === order.id);
-    if (index !== -1) {
-      orders[index] = order;
-    } else {
-      orders.push(order);
+    if (error) {
+      console.error('Erro ao buscar ordem ativa:', error);
+      return null;
     }
     
-    localStorage.setItem(STORAGE_KEYS.SERVICE_ORDERS, JSON.stringify(orders));
+    return orders?.[0] || null;
+  } catch (error) {
+    console.error('Erro ao obter ordem ativa:', error);
+    return null;
+  }
+};
+
+// Função para salvar uma ordem de serviço (usando Supabase)
+export const saveServiceOrder = async (order: ServiceOrder): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('service_orders')
+      .upsert({
+        id: order.id,
+        client_id: order.clientId,
+        schedule_id: order.scheduleId,
+        status: order.status,
+        service_type: order.serviceType,
+        target_pest: order.targetPest || '',
+        location: order.location || '',
+        observations: order.observations || '',
+        application_method: order.applicationMethod || '',
+        product_amount: order.productAmount ? parseFloat(order.productAmount) : null,
+        start_time: order.startTime ? new Date(order.startTime).toISOString() : null,
+        end_time: order.endTime ? new Date(order.endTime).toISOString() : null,
+        created_at: order.createdAt ? new Date(order.createdAt).toISOString() : new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    
+    if (error) {
+      console.error('Erro ao salvar ordem:', error);
+      throw new Error('Erro ao salvar ordem de serviço');
+    }
   } catch (error) {
     console.error('Erro ao salvar ordem:', error);
     throw new Error('Erro ao salvar ordem de serviço');
   }
+};
+
+export const ordemServicoService = {
+  hasActiveSchedule,
+  hasActiveScheduleAsync,
+  getActiveServiceOrder,
+  finishAllActiveServiceOrders
 };

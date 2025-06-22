@@ -2,7 +2,7 @@ import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.safeprag.app',
-  appName: 'Safeprag',
+  appName: 'Sulpest',
   webDir: 'dist',
   server: {
     androidScheme: 'https'

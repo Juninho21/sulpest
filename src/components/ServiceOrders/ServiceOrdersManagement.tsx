@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { DatePicker } from '../ui/date-picker';
 import { getAllServiceOrders } from '../../services/ordemServicoService';
 import { downloadPDFFromStorage, generateServiceOrderPDF } from '../../services/pdfService';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 import { FileText, Download } from 'lucide-react';
 
 interface ServiceOrderDisplay {
@@ -69,7 +69,8 @@ const ServiceOrdersManagement = () => {
       setData(displayOrders);
     } catch (error) {
       console.error('Erro ao carregar ordens de serviço:', error);
-      toast.error('Erro ao carregar ordens de serviço');
+      // toast.error('Erro ao carregar ordens de serviço');
+      console.error('Erro ao carregar ordens de serviço');
     } finally {
       setLoading(false);
     }
@@ -171,10 +172,12 @@ const ServiceOrdersManagement = () => {
       link.click();
       document.body.removeChild(link);
       
-      toast.success('Dados exportados com sucesso!');
+      // toast.success('Dados exportados com sucesso!');
+      console.log('Dados exportados com sucesso!');
     } catch (error) {
       console.error('Erro ao exportar dados:', error);
-      toast.error('Erro ao exportar dados');
+      // toast.error('Erro ao exportar dados');
+      console.error('Erro ao exportar dados');
     }
   };
 
@@ -190,7 +193,8 @@ const ServiceOrdersManagement = () => {
         const order = orders.find(o => o.id === id);
         
         if (!order) {
-          toast.error('Ordem de serviço não encontrada');
+          // toast.error('Ordem de serviço não encontrada');
+      console.error('Ordem de serviço não encontrada');
           return;
         }
         
@@ -227,23 +231,27 @@ const ServiceOrdersManagement = () => {
         // Gerar PDF
         generateServiceOrderPDF(pdfData)
           .then(() => {
-            toast.success('PDF gerado com sucesso!');
+            // toast.success('PDF gerado com sucesso!');
+        console.log('PDF gerado com sucesso!');
             loadServiceOrders(); // Recarregar para atualizar status de PDF
           })
           .catch(error => {
             console.error('Erro ao gerar PDF:', error);
-            toast.error('Erro ao gerar PDF');
+            // toast.error('Erro ao gerar PDF');
+        console.error('Erro ao gerar PDF');
           });
       }
     } catch (error) {
       console.error('Erro ao visualizar ordem de serviço:', error);
-      toast.error('Erro ao visualizar ordem de serviço');
+      // toast.error('Erro ao visualizar ordem de serviço');
+      console.error('Erro ao visualizar ordem de serviço');
     }
   };
 
   const handleViewCertificate = (id: string) => {
     // Implementação futura para certificados
-    toast.info('Funcionalidade de certificado será implementada em breve');
+    // toast.info('Funcionalidade de certificado será implementada em breve');
+    console.log('Funcionalidade de certificado será implementada em breve');
   };
 
   return (

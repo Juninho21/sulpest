@@ -29,4 +29,9 @@ export interface ServiceOrder {
     technician: string;
   };
   product?: Product;
+  productAmount?: string;
+  targetPest?: string;
+  location?: string;
+  observations?: string;
+  applicationMethod?: string;
 }

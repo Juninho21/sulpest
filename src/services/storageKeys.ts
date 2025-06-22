@@ -9,7 +9,8 @@ export const STORAGE_KEYS = {
   DEVICES: 'safeprag_devices',
   USER_DATA: 'safeprag_user_data',
   USERS: 'safeprag_users',
-  DOWNLOADS: 'safeprag_downloads'
+  DOWNLOADS: 'safeprag_downloads',
+  PEST_COUNTS: 'safeprag_pest_counts'
 } as const;
 
 // Chaves adicionais que não estão no objeto STORAGE_KEYS mas precisam ser incluídas no backup

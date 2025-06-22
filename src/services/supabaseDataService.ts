@@ -28,7 +28,7 @@ export interface SupabaseDataService {
 
   // Empresa
   getCompany: () => Promise<CompanyData | null>;
-  saveCompany: (company: CompanyData) => Promise<void>;
+  saveCompany: (company: Partial<CompanyData>) => Promise<void>;
   uploadCompanyLogo: (file: File) => Promise<string>;
   deleteCompanyLogo: (logoUrl: string) => Promise<void>;
 
@@ -129,13 +129,16 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
   }
 
   async saveServiceOrder(order: any) {
-    const { error } = await supabase
-      .from('service_orders')
-      .upsert({
-        ...order,
-        updated_at: new Date().toISOString()
-      });
-    if (error) throw error;
+    // Importar a função createServiceOrder do ordemServicoService para garantir consistência
+    const { createServiceOrder } = await import('./ordemServicoService');
+    
+    try {
+      // Usar a mesma função da versão web que já inclui user_id e validações
+      await createServiceOrder(order);
+    } catch (error) {
+      console.error('Erro ao salvar ordem de serviço:', error);
+      throw error;
+    }
   }
 
   async deleteServiceOrder(id: string) {
@@ -187,17 +190,6 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
       }
 
       if (data) {
-        // Função para formatar a data para YYYY-MM-DD
-        const formatDate = (date: Date | null) => {
-          if (!date) return '';
-          try {
-            return new Date(date).toISOString().split('T')[0];
-          } catch (e) {
-            console.error('Erro ao formatar data:', e);
-            return '';
-          }
-        };
-
         // Mapear os campos do Supabase para o formato do frontend
         return {
           id: data.id,
@@ -210,11 +202,11 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
           document: data.document || '',
           environmental_license: {
             number: data.environmental_license_number || '',
-            date: formatDate(data.environmental_license_validity)
+            date: data.environmental_license_validity || ''
           },
           sanitary_permit: {
             number: data.sanitary_permit_number || '',
-            expiry_date: formatDate(data.sanitary_permit_validity)
+            expiry_date: data.sanitary_permit_validity || ''
           },
           created_at: data.created_at,
           updated_at: data.updated_at
@@ -228,23 +220,19 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
     }
   }
 
-  async saveCompany(company: CompanyData): Promise<void> {
+  async saveCompany(company: Partial<CompanyData>): Promise<void> {
     try {
       const formattedData: any = {
-        id: company.id,
-        name: company.name,
-        cnpj: company.cnpj,
-        phone: company.phone,
-        address: company.address,
-        email: company.email,
-        logo_url: company.logo_url,
-        environmental_license_number: company.environmental_license?.number || '',
-        environmental_license_validity: company.environmental_license?.date || '',
-        sanitary_permit_number: company.sanitary_permit?.number || '',
-        sanitary_permit_validity: company.sanitary_permit?.expiry_date || '',
-        created_at: company.created_at,
+        ...company,
         updated_at: new Date().toISOString()
       };
+      
+      // Remover campos aninhados que não existem no schema do Supabase
+      delete formattedData.environmental_license;
+      delete formattedData.sanitary_permit;
+      
+      // Remover chaves indefinidas para evitar problemas com o Supabase
+      Object.keys(formattedData).forEach(key => formattedData[key] === undefined && delete formattedData[key]);
 
       const { error } = await supabase
         .from('company')
@@ -262,39 +250,64 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
 
   async uploadCompanyLogo(file: File): Promise<string> {
     try {
+      console.log('🚀 Iniciando upload do logo:', file.name, 'Tamanho:', file.size, 'Tipo:', file.type);
+      
       // Nome fixo para o logo
       const fileExt = file.name.split('.').pop();
-      const filePath = `logos/logo.${fileExt}`;
+      const filePath = `Sulpest.${fileExt}`;
+      console.log('📁 Caminho do arquivo:', filePath);
+
+      // Verificar se o bucket existe e tem as permissões corretas
+      console.log('🔍 Verificando bucket...');
+      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
+      if (bucketError) {
+        console.error('❌ Erro ao listar buckets:', bucketError);
+        throw bucketError;
+      }
+      console.log('✅ Buckets disponíveis:', buckets?.map(b => b.name));
+      
+      // Verificar se o bucket 'images' existe
+      const imagesBucket = buckets?.find(b => b.name === 'images');
+      if (!imagesBucket) {
+        console.error('❌ Bucket "images" não encontrado. Buckets disponíveis:', buckets?.map(b => b.name));
+        throw new Error('Bucket "images" não encontrado no Supabase Storage');
+      }
+      console.log('✅ Bucket "images" encontrado:', imagesBucket);
 
       // Fazer upload do novo arquivo, sobrescrevendo o anterior
-      const { error: uploadError } = await supabase
+      console.log('📤 Fazendo upload do arquivo...');
+      const { data: uploadData, error: uploadError } = await supabase
         .storage
-        .from('company')
+        .from('images')
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: true
         });
 
       if (uploadError) {
-        console.error('Erro ao fazer upload do arquivo:', uploadError);
+        console.error('❌ Erro ao fazer upload do arquivo:', uploadError);
+        console.error('📋 Detalhes do erro:', {
+          message: uploadError.message,
+          name: uploadError.name
+        });
         throw uploadError;
       }
 
+      console.log('✅ Upload realizado com sucesso:', uploadData);
+
       // Obter URL pública do novo arquivo
+      console.log('🔗 Obtendo URL pública...');
       const { data } = supabase
         .storage
-        .from('company')
+        .from('images')
         .getPublicUrl(filePath);
 
-      // Atualizar campo logo_url na tabela company
-      await supabase
-        .from('company')
-        .update({ logo_url: data.publicUrl })
-        .eq('id', 1);
-
+      console.log('✅ URL pública obtida:', data.publicUrl);
       return data.publicUrl;
     } catch (error) {
-      console.error('Erro ao fazer upload do logo:', error);
+      console.error('❌ Erro ao fazer upload do logo:', error);
+      console.error('📋 Tipo do erro:', typeof error);
+      console.error('📋 Stack trace:', error instanceof Error ? error.stack : 'N/A');
       throw error;
     }
   }
@@ -304,8 +317,8 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
     if (!fileName) return;
 
     const { error } = await supabase.storage
-      .from('company')
-      .remove([`logo/${fileName}`]);
+      .from('images')
+      .remove([fileName]);
 
     if (error) throw error;
   }
@@ -428,21 +441,21 @@ class SupabaseDataServiceImpl implements SupabaseDataService {
 
       // Listar todos os arquivos no bucket
       const { data: files } = await supabase.storage
-        .from('company')
-        .list('logos');
+        .from('images')
+        .list('');
 
       if (files && files.length > 0) {
         // Filtrar apenas os arquivos que não são o atual
         const filesToRemove = files.filter(file => {
-          const filePath = `logos/${file.name}`;
-          const fileUrl = supabase.storage.from('company').getPublicUrl(filePath).data.publicUrl;
+          const filePath = file.name;
+          const fileUrl = supabase.storage.from('images').getPublicUrl(filePath).data.publicUrl;
           return fileUrl !== company?.logo_url;
         });
 
         if (filesToRemove.length > 0) {
-          const fileNames = filesToRemove.map(file => `logos/${file.name}`);
+          const fileNames = filesToRemove.map(file => file.name);
           await supabase.storage
-            .from('company')
+            .from('images')
             .remove(fileNames);
         }
       }
@@ -458,7 +471,7 @@ export const uploadCompanyLogo = async (file: File): Promise<string> => {
   return supabaseDataService.uploadCompanyLogo(file);
 };
 
-export const saveCompany = async (company: CompanyData): Promise<void> => {
+export const saveCompany = async (company: Partial<CompanyData>): Promise<void> => {
   return supabaseDataService.saveCompany(company);
 };
 
@@ -472,4 +485,4 @@ export const saveUserData = async (userData: any): Promise<void> => {
 
 export const saveSchedule = async (schedule: any): Promise<void> => {
   return supabaseDataService.saveSchedule(schedule);
-}; 
+};

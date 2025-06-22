@@ -3,8 +3,8 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Schedule } from '../types/schedule';
 import { Clock, MapPin, User, Pencil, Trash2, X, Play, AlertCircle, Phone } from 'lucide-react';
-import { toast } from 'react-toastify';
-import { createServiceOrder, registerNoService, hasActiveServiceOrder, hasActiveSchedule } from '../services/ordemServicoService';
+// import { toast } from 'react-toastify';
+import { createServiceOrder, registerNoService, hasActiveSchedule, hasActiveScheduleAsync } from '../services/ordemServicoService';
 import { supabase } from '../config/supabase';
 
 interface ScheduleListProps {
@@ -30,6 +30,8 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
   const [showNoServiceModal, setShowNoServiceModal] = useState(false);
   const [noServiceReason, setNoServiceReason] = useState('');
   const [clients, setClients] = useState<any[]>([]);
+  const [hasActiveOS, setHasActiveOS] = useState(false);
+  const [checkingActiveOS, setCheckingActiveOS] = useState(false);
 
   useEffect(() => {
     async function fetchClients() {
@@ -123,39 +125,102 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
     onScheduleClick(schedule);
   };
 
-  const handleCardClick = (schedule: Schedule) => {
+  const handleCardClick = async (schedule: Schedule) => {
     setSelectedSchedule(schedule);
     setShowActionsModal(true);
+    
+    // Verifica assincronamente se há uma OS ativa para este agendamento
+    setCheckingActiveOS(true);
+    try {
+      const isActive = await hasActiveScheduleAsync(schedule.id);
+      setHasActiveOS(isActive);
+    } catch (error) {
+      console.error('Erro ao verificar OS ativa:', error);
+      // Fallback para verificação síncrona
+      setHasActiveOS(hasActiveSchedule(schedule.id));
+    } finally {
+      setCheckingActiveOS(false);
+    }
   };
 
   const handleStartOS = async () => {
     if (selectedSchedule) {
       try {
-        // Verifica se já existe uma OS em andamento
-        if (await hasActiveServiceOrder()) {
-          // Se já existe uma OS em andamento, redireciona para a página de atividade
-          onOSStart();
-          setShowActionsModal(false);
-          return;
-        }
+        // A limpeza automática garante que não haverá conflitos de OS ativas
 
         // Verifica se o agendamento já está concluído
         if (selectedSchedule.status === 'completed') {
-          toast.info('Este agendamento já foi concluído.');
+          // toast.info('Este agendamento já foi concluído.');
+          console.log('Este agendamento já foi concluído.');
           return;
         }
 
         // Verifica se o agendamento já está em andamento
         if (selectedSchedule.status === 'in_progress') {
-          toast.info('Este agendamento já está em andamento.');
+          // toast.info('Este agendamento já está em andamento.');
+          console.log('Este agendamento já está em andamento.');
           return;
         }
 
+        // Buscar dados completos do cliente no Supabase e salvar para o PDF
+        try {
+          const { data: client, error } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', selectedSchedule.clientId)
+            .single();
+          
+          if (!error && client) {
+            localStorage.setItem('selectedClient', JSON.stringify({
+              id: client.id,
+              name: client.name || selectedSchedule.clientName,
+              address: client.address || selectedSchedule.clientAddress,
+              phone: client.phone || 'N/A',
+              contact: client.contact || 'N/A',
+              email: client.email || 'N/A',
+              cnpj: client.cnpj || 'N/A',
+              city: client.city || 'N/A',
+              state: client.state || 'N/A',
+              code: client.code || 'N/A'
+            }));
+          } else {
+            // Fallback para dados do agendamento
+            localStorage.setItem('selectedClient', JSON.stringify({
+              id: selectedSchedule.clientId,
+              name: selectedSchedule.clientName,
+              address: selectedSchedule.clientAddress,
+              phone: 'N/A',
+              contact: 'N/A',
+              email: 'N/A',
+              cnpj: 'N/A',
+              city: 'N/A',
+              state: 'N/A',
+              code: 'N/A'
+            }));
+          }
+        } catch (error) {
+          console.error('Erro ao buscar cliente do Supabase:', error);
+          // Fallback para dados do agendamento
+          localStorage.setItem('selectedClient', JSON.stringify({
+            id: selectedSchedule.clientId,
+            name: selectedSchedule.clientName,
+            address: selectedSchedule.clientAddress,
+            phone: 'N/A',
+            contact: 'N/A',
+            email: 'N/A',
+            cnpj: 'N/A',
+            city: 'N/A',
+            state: 'N/A',
+            code: 'N/A'
+          }));
+        }
+        
         // Cria a ordem de serviço
-        const serviceOrder = createServiceOrder(selectedSchedule);
+        const serviceOrder = await createServiceOrder(selectedSchedule);
         
         // Atualiza a interface
-        toast.success('Ordem de Serviço iniciada com sucesso!');
+        // toast.success('Ordem de Serviço iniciada com sucesso!');
+        console.log('Ordem de Serviço iniciada com sucesso!');
         setShowActionsModal(false);
         
         // Atualiza os agendamentos e muda para a tela de OS
@@ -163,9 +228,11 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
         onOSStart();
       } catch (error) {
         if (error instanceof Error) {
-          toast.error(error.message);
+          // toast.error(error.message);
+          console.error(error.message);
         } else {
-          toast.error('Erro ao iniciar Ordem de Serviço');
+          // toast.error('Erro ao iniciar Ordem de Serviço');
+          console.error('Erro ao iniciar Ordem de Serviço');
         }
       }
     }
@@ -176,17 +243,19 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
     setShowNoServiceModal(true);
   };
 
-  const handleNoServiceSubmit = (e: React.FormEvent) => {
+  const handleNoServiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedSchedule && noServiceReason) {
       try {
-        registerNoService(selectedSchedule, noServiceReason);
-        toast.info('Não atendimento registrado com sucesso');
+        await registerNoService(selectedSchedule, noServiceReason);
+        // toast.info('Não atendimento registrado com sucesso');
+        console.log('Não atendimento registrado com sucesso');
         setShowNoServiceModal(false);
         setNoServiceReason('');
         onScheduleUpdate(); // Atualiza a lista de agendamentos
       } catch (error) {
-        toast.error('Erro ao registrar não atendimento');
+        // toast.error('Erro ao registrar não atendimento');
+        console.error('Erro ao registrar não atendimento');
       }
     }
   };
@@ -222,15 +291,12 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
 
   const handleStartOrder = async (schedule: Schedule) => {
     try {
-      // Verifica se já existe uma OS em andamento
-      if (hasActiveServiceOrder()) {
-        toast.error('Já existe uma ordem de serviço em andamento. Finalize a OS atual antes de iniciar uma nova.');
-        return;
-      }
-
+      // A limpeza automática garante que não haverá conflitos de OS ativas
+      
       // Verifica se o agendamento já está em andamento
-      if (hasActiveSchedule(schedule.id)) {
-        toast.error('Este agendamento já está em andamento.');
+      if (await hasActiveSchedule(schedule.id)) {
+        // toast.error('Este agendamento já está em andamento.');
+        console.error('Este agendamento já está em andamento.');
         return;
       }
 
@@ -239,11 +305,12 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
       localStorage.setItem('serviceStartTime', now.toISOString());
 
       // Tenta criar a nova ordem de serviço
-      const newOrder = createServiceOrder(schedule);
+      const newOrder = await createServiceOrder(schedule);
       console.log('Nova OS criada:', newOrder);
       
       // Mostra mensagem de sucesso
-      toast.success('Ordem de serviço iniciada com sucesso!');
+      // toast.success('Ordem de serviço iniciada com sucesso!');
+      console.log('Ordem de serviço iniciada com sucesso!');
       
       // Fecha o modal de ações
       setShowActionsModal(false);
@@ -253,7 +320,8 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
       onScheduleUpdate(); // Atualiza a lista de agendamentos
     } catch (error) {
       console.error('Erro ao iniciar ordem de serviço:', error);
-      toast.error(error instanceof Error ? error.message : 'Erro ao iniciar ordem de serviço');
+      // toast.error(error instanceof Error ? error.message : 'Erro ao iniciar ordem de serviço');
+      console.error(error instanceof Error ? error.message : 'Erro ao iniciar ordem de serviço');
     }
   };
 
@@ -389,13 +457,34 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
                 <div className="space-y-3">
                   {selectedSchedule.status !== 'completed' && selectedSchedule.status !== 'cancelled' && (
                     <>
-                      <button
-                        onClick={() => handleStartOrder(selectedSchedule)}
-                        className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        <Play className="w-4 h-4 mr-2" />
-                        Iniciar OS
-                      </button>
+                      {checkingActiveOS ? (
+                        <button
+                          disabled
+                          className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-400 cursor-not-allowed"
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          Verificando...
+                        </button>
+                      ) : (hasActiveOS || selectedSchedule.status === 'in_progress') ? (
+                        <button
+                          onClick={() => {
+                            setShowActionsModal(false);
+                            onOSStart(); // Direciona para a página de atividade
+                          }}
+                          className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          Continuar
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleStartOrder(selectedSchedule)}
+                          className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          Iniciar OS
+                        </button>
+                      )}
 
                       <button
                         onClick={handleNoService}

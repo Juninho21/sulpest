@@ -45,9 +45,14 @@ export const setStorageMode = (mode: StorageMode): void => {
 };
 
 // Função para verificar se o Supabase está disponível
-export const isSupabaseAvailable = (): boolean => {
-  const status = getConnectionStatus();
-  return status?.connected || false;
+export const isSupabaseAvailable = async (): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase.from('config').select('*').limit(1);
+    return !error;
+  } catch (error) {
+    console.error('Erro ao verificar conexão com Supabase:', error);
+    return false;
+  }
 };
 
 // Serviço de Empresa
@@ -76,12 +81,12 @@ export const clientService = {
       return data ? JSON.parse(data) : [];
     }
     
-    if (mode === StorageMode.SUPABASE && isSupabaseAvailable()) {
+    if (mode === StorageMode.SUPABASE && await isSupabaseAvailable()) {
       return await supabaseService.getClientsFromSupabase();
     }
     
     // Modo híbrido ou fallback para local
-    if (mode === StorageMode.HYBRID && isSupabaseAvailable()) {
+    if (mode === StorageMode.HYBRID && await isSupabaseAvailable()) {
       try {
         const clients = await supabaseService.getClientsFromSupabase();
         return clients.length > 0 ? clients : clientStorage.getClients();
@@ -111,7 +116,7 @@ export const clientService = {
     localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
     
     // Se estiver usando Supabase ou modo híbrido e Supabase estiver disponível
-    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && isSupabaseAvailable()) {
+    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && await isSupabaseAvailable()) {
       try {
         await supabase
           .from('clients')
@@ -144,7 +149,7 @@ export const clientService = {
     localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(filtered));
     
     // Se estiver usando Supabase ou modo híbrido e Supabase estiver disponível
-    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && isSupabaseAvailable()) {
+    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && await isSupabaseAvailable()) {
       try {
         await supabase
           .from('clients')
@@ -169,86 +174,105 @@ export const clientService = {
   }
 };
 
-// Serviço de Produtos
+// Serviço de Produtos - Apenas Supabase
 export const productDataService = {
   getProducts: async (): Promise<Product[]> => {
-    const mode = getStorageMode();
-    
-    if (mode === StorageMode.LOCAL) {
-      return productService.getProducts();
+    const isAvailable = await isSupabaseAvailable();
+    if (!isAvailable) {
+      throw new Error('Supabase não está disponível. Verifique sua conexão com a internet.');
     }
     
-    if (mode === StorageMode.SUPABASE && isSupabaseAvailable()) {
+    try {
       return await supabaseService.getProductsFromSupabase();
+    } catch (error) {
+      console.error('Erro ao obter produtos do Supabase:', error);
+      throw error;
     }
-    
-    // Modo híbrido ou fallback para local
-    if (mode === StorageMode.HYBRID && isSupabaseAvailable()) {
-      try {
-        const products = await supabaseService.getProductsFromSupabase();
-        return products.length > 0 ? products : productService.getProducts();
-      } catch (error) {
-        console.error('Erro ao obter produtos do Supabase, usando localStorage:', error);
-      }
-    }
-    
-    // Fallback para localStorage
-    return productService.getProducts();
   },
   
   saveProduct: async (product: Product): Promise<Product> => {
-    const mode = getStorageMode();
-    
-    // Sempre salva localmente para garantir disponibilidade offline
-    const savedProduct = product.id 
-      ? productService.updateProduct(product.id, product)
-      : productService.addProduct(product);
-    
-    // Se estiver usando Supabase ou modo híbrido e Supabase estiver disponível
-    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && isSupabaseAvailable()) {
-      try {
-        await supabase
-          .from('products')
-          .upsert({
-            id: savedProduct.id,
-            name: savedProduct.name,
-            active_ingredient: savedProduct.activeIngredient,
-            chemical_group: savedProduct.chemicalGroup,
-            registration: savedProduct.registration,
-            batch: savedProduct.batch,
-            expiration_date: savedProduct.expirationDate,
-            unit: savedProduct.unit,
-            measure: savedProduct.measure,
-            diluent: savedProduct.diluent,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'id' });
-      } catch (error) {
-        console.error('Erro ao salvar produto no Supabase:', error);
-      }
+    const isAvailable = await isSupabaseAvailable();
+    if (!isAvailable) {
+      throw new Error('Supabase não está disponível. Verifique sua conexão com a internet.');
     }
     
-    return savedProduct;
+    try {
+      // Preparar produto para salvamento (deixar o Supabase gerar UUID automaticamente)
+      const productToSave = {
+        ...product,
+        id: product.id && product.id.trim() !== '' ? product.id : undefined // Deixar undefined para o Supabase gerar UUID
+      };
+      
+      // Preparar dados para inserção/atualização
+      const productData: any = {
+        name: productToSave.name,
+        active_ingredient: productToSave.activeIngredient,
+        chemical_group: productToSave.chemicalGroup,
+        registration: productToSave.registration,
+        batch: productToSave.batch,
+        expiration_date: productToSave.expirationDate,
+        measure: productToSave.measure,
+        diluent: productToSave.diluent,
+        updated_at: new Date().toISOString()
+      };
+      
+      // Incluir ID apenas se existir (para atualização)
+      if (productToSave.id) {
+        productData.id = productToSave.id;
+      } else {
+        productData.created_at = new Date().toISOString();
+      }
+      
+      const { data, error } = await supabase
+        .from('products')
+        .upsert(productData, { onConflict: 'id' })
+        .select()
+        .single();
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Mapear dados do Supabase de volta para o formato da aplicação
+      const savedProduct: Product = {
+        id: data.id,
+        name: data.name,
+        activeIngredient: data.active_ingredient,
+        chemicalGroup: data.chemical_group,
+        registration: data.registration,
+        batch: data.batch,
+        expirationDate: data.expiration_date,
+        measure: data.measure,
+        diluent: data.diluent
+      };
+      
+      return savedProduct;
+    } catch (error) {
+      console.error('Erro ao salvar produto no Supabase:', error);
+      throw error;
+    }
   },
   
   deleteProduct: async (id: string): Promise<boolean> => {
-    const mode = getStorageMode();
-    
-    // Sempre deleta localmente
-    const success = productService.deleteProduct(id);
-    
-    // Se estiver usando Supabase ou modo híbrido e Supabase estiver disponível
-    if ((mode === StorageMode.SUPABASE || mode === StorageMode.HYBRID) && isSupabaseAvailable()) {
-      try {
-        await supabase
-          .from('products')
-          .delete()
-          .eq('id', id);
-      } catch (error) {
-        console.error('Erro ao deletar produto no Supabase:', error);
-      }
+    const isAvailable = await isSupabaseAvailable();
+    if (!isAvailable) {
+      throw new Error('Supabase não está disponível. Verifique sua conexão com a internet.');
     }
     
-    return success;
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Erro ao deletar produto no Supabase:', error);
+      throw error;
+    }
   }
 };

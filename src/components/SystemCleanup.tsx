@@ -1,15 +1,17 @@
 import React from 'react';
 import { cleanupSystemData } from '../services/ordemServicoService';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 
 export const SystemCleanup: React.FC = () => {
   const handleCleanup = () => {
     try {
       cleanupSystemData();
-      toast.success('Sistema limpo com sucesso!');
+      // toast.success('Sistema limpo com sucesso!');
+      console.log('Sistema limpo com sucesso!');
     } catch (error) {
       console.error('Erro ao limpar sistema:', error);
-      toast.error('Erro ao limpar sistema');
+      // toast.error('Erro ao limpar sistema');
+      console.error('Erro ao limpar sistema');
     }
   };
 

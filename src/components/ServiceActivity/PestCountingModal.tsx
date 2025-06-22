@@ -59,7 +59,7 @@ export const PestCountingModal: React.FC<PestCountingModalProps> = ({
           {savedPestCounts.length > 0 && (
             <div className="mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-700 mb-3">Resumo de Contagem de Pragas</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                 {savedPestCounts.map((item, index) => (
                   <div key={index} className="bg-white p-3 rounded-md shadow-sm">
                     <h4 className="font-medium text-gray-800">{item.deviceType} {item.deviceNumber}</h4>
@@ -80,7 +80,7 @@ export const PestCountingModal: React.FC<PestCountingModalProps> = ({
         <div className="flex justify-end p-4 border-t">
           <button
             onClick={onClose}
-            className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2"
+            className="w-full sm:w-auto bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-3 sm:py-2 rounded-lg font-medium"
           >
             Fechar
           </button>

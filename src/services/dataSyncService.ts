@@ -52,42 +52,11 @@ export const getSyncStatus = (): SyncStatus | null => {
   return status;
 };
 
-// Função para sincronizar agendamentos com o Supabase
+// Função para sincronizar agendamentos com o Supabase (removida - agendamentos são gerenciados apenas no Supabase)
 export const syncSchedulesToSupabase = async (): Promise<SyncResult> => {
-  try {
-    const schedulesData = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    if (!schedulesData) return { success: true, count: 0 };
-
-    const schedules = JSON.parse(schedulesData);
-    let successCount = 0;
-
-    for (const schedule of schedules) {
-      // Mapeando os campos do agendamento para o formato do banco
-      const scheduleToSync = {
-        id: schedule.id,
-        client_name: schedule.clientName || '',
-        client_phone: schedule.clientPhone || '',
-        client_address: schedule.clientAddress || '',
-        date: schedule.date,
-        time: schedule.time,
-        status: schedule.status || 'pending',
-        notes: schedule.notes || '',
-        updated_at: new Date().toISOString(),
-        last_sync: new Date().toISOString()
-      };
-
-      const { error } = await supabase
-        .from('schedules')
-        .upsert(scheduleToSync);
-
-      if (!error) successCount++;
-    }
-
-    return { success: true, count: successCount };
-  } catch (error) {
-    console.error('Erro ao sincronizar agendamentos:', error);
-    return { success: false, count: 0, error: error.message };
-  }
+  // Esta função não é mais necessária pois os agendamentos são gerenciados exclusivamente no Supabase
+  // Retorna sucesso para manter compatibilidade com o código existente
+  return { success: true, count: 0 };
 };
 
 // Função para sincronizar dados da empresa com o Supabase
@@ -218,7 +187,25 @@ export const getSchedulesFromSupabase = async (): Promise<any[]> => {
     
     if (error) throw error;
     
-    return data || [];
+    // Mapear os dados do Supabase para o formato esperado pela aplicação
+    const mappedSchedules = (data || []).map(schedule => ({
+      id: schedule.id,
+      clientId: schedule.client_id,
+      clientName: schedule.client_name || 'Cliente não encontrado',
+      clientAddress: schedule.client_address || '',
+      clientPhone: schedule.client_phone || '',
+      serviceType: schedule.service_type || 'Controle de Pragas',
+      date: schedule.date,
+      time: schedule.time || '08:00',
+      startTime: schedule.start_time || schedule.time || '08:00',
+      duration: schedule.duration || '60',
+      technician: schedule.technician || 'Técnico',
+      notes: schedule.notes || '',
+      status: schedule.status || 'pending'
+    }));
+    
+    console.log('Agendamentos carregados do Supabase:', mappedSchedules);
+    return mappedSchedules;
   } catch (error) {
     console.error('Erro ao obter agendamentos do Supabase:', error);
     return [];
@@ -246,12 +233,42 @@ export const getCompanyFromSupabase = async (): Promise<any> => {
           .limit(1);
 
         if (listError) throw listError as SupabaseError;
-        return companies?.[0] || null;
+        const company = companies?.[0];
+        if (company) {
+          // Mapear campos do banco para o formato esperado pelo frontend
+          return {
+            ...company,
+            environmental_license: {
+              number: company.environmental_license_number || '',
+              date: company.environmental_license_validity || ''
+            },
+            sanitary_permit: {
+              number: company.sanitary_permit_number || '',
+              expiry_date: company.sanitary_permit_validity || ''
+            }
+          };
+        }
+        return null;
       }
       throw supabaseError;
     }
     
-    return data;
+    if (data) {
+      // Mapear campos do banco para o formato esperado pelo frontend
+      return {
+        ...data,
+        environmental_license: {
+          number: data.environmental_license_number || '',
+          date: data.environmental_license_validity || ''
+        },
+        sanitary_permit: {
+          number: data.sanitary_permit_number || '',
+          expiry_date: data.sanitary_permit_validity || ''
+        }
+      };
+    }
+    
+    return null;
   } catch (error: unknown) {
     console.error('Erro ao obter dados da empresa do Supabase:', error);
     return null;
@@ -437,10 +454,9 @@ export const loadAllDataFromSupabase = async (): Promise<{
       loaded.push('serviceOrders');
     }
     
-    // Carregar agendamentos
+    // Carregar agendamentos (não salva mais no localStorage - apenas no Supabase)
     const schedules = await getSchedulesFromSupabase();
     if (schedules.length > 0) {
-      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(schedules));
       loaded.push('schedules');
     }
     

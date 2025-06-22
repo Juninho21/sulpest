@@ -11,18 +11,18 @@ import {
 import { ServiceScheduler } from './components/ServiceScheduler';
 import { BottomNavBar } from './components/BottomNavBar';
 import { AdminPage } from './components/AdminPage';
-import { NotificationProvider } from './contexts/NotificationContext';
-import { NotificationToast } from './components/NotificationToast';
 import { KeepAliveProvider } from './contexts/KeepAliveContext';
-import { useNotification } from './contexts/NotificationContext';
 import { ApprovalModal } from './components/ApprovalModal';
 import ServiceActivity from './components/ServiceActivity';
 import { storageService } from './services/storageService';
 import { generateServiceOrderPDF } from './services/pdfService';
-import { getActiveServiceOrder, approveServiceOrder, updateScheduleStatus } from './services/ordemServicoService';
+import { getActiveServiceOrder, approveServiceOrder, updateScheduleStatus, finishServiceOrder } from './services/ordemServicoService';
 import { loadAllDataFromSupabase } from './services/dataSyncService';
 import { useSupabase } from './hooks/useSupabase';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify'; // Removido
+import { supabase } from './config/supabase';
+import { fileSharingService } from './services/fileSharingService';
+import { v4 as uuidv4 } from 'uuid';
 
 interface State {
   selectedDevice: string;
@@ -367,11 +367,10 @@ function App() {
   const [observations, setObservations] = useState('');
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [productAmount, setProductAmount] = useState('');
-  const [productUnit, setProductUnit] = useState('ml');
   const [applicationMethod, setApplicationMethod] = useState('');
   const [targetPest, setTargetPest] = useState('');
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const { showNotification } = useNotification();
+  // Notificações removidas
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const { isConnected } = useSupabase();
   const [isLoading, setIsLoading] = useState(true);
@@ -413,6 +412,64 @@ function App() {
       const activeOrder = orders.find(order => order.status === 'in_progress');
       if (activeOrder) {
         dispatch({ type: 'SET_START_TIME', payload: new Date(activeOrder.createdAt) });
+        
+        // Carregar dados do cliente da OS ativa diretamente do Supabase
+        const loadClientFromSupabase = async () => {
+          try {
+            const { data: client, error } = await supabase
+              .from('clients')
+              .select('*')
+              .eq('id', activeOrder.clientId)
+              .single();
+            
+            if (!error && client) {
+              // Salvar dados do cliente no localStorage para o PDF
+              localStorage.setItem('selectedClient', JSON.stringify({
+                id: client.id,
+                name: client.name || activeOrder.clientName,
+                address: client.address || activeOrder.clientAddress,
+                phone: client.phone || 'N/A',
+                contact: client.contact || 'N/A',
+                email: client.email || 'N/A',
+                cnpj: client.cnpj || 'N/A',
+                city: client.city || 'N/A',
+                state: client.state || 'N/A',
+                code: client.code || 'N/A'
+              }));
+            } else {
+              // Se não encontrar o cliente no Supabase, usar dados da OS
+              localStorage.setItem('selectedClient', JSON.stringify({
+                id: activeOrder.clientId,
+                name: activeOrder.clientName,
+                address: activeOrder.clientAddress,
+                phone: 'N/A',
+                contact: 'N/A',
+                email: 'N/A',
+                cnpj: 'N/A',
+                city: 'N/A',
+                state: 'N/A',
+                code: 'N/A'
+              }));
+            }
+          } catch (error) {
+            console.error('Erro ao buscar cliente do Supabase:', error);
+            // Fallback para dados da OS
+            localStorage.setItem('selectedClient', JSON.stringify({
+              id: activeOrder.clientId,
+              name: activeOrder.clientName,
+              address: activeOrder.clientAddress,
+              phone: 'N/A',
+              contact: 'N/A',
+              email: 'N/A',
+              cnpj: 'N/A',
+              city: 'N/A',
+              state: 'N/A',
+              code: 'N/A'
+            }));
+          }
+        };
+        
+        loadClientFromSupabase();
       }
     }
 
@@ -433,17 +490,25 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       try {
+        console.log('Status da conexão Supabase:', isConnected);
         if (isConnected) {
+          console.log('Carregando dados do Supabase...');
           const { success, loaded } = await loadAllDataFromSupabase();
           
+          console.log('Resultado do carregamento:', { success, loaded });
           if (success) {
+            console.log('Dados carregados com sucesso:', loaded);
             // toast.success('Dados carregados com sucesso!');
           } else {
-            toast.error('Erro ao carregar dados do Supabase');
+            console.error('Erro ao carregar dados do Supabase');
+            // toast.error('Erro ao carregar dados do Supabase');
           }
+        } else {
+          console.log('Supabase não conectado, pulando carregamento de dados');
         }
       } catch (error) {
-        toast.error('Erro ao carregar dados');
+        console.error('Erro ao carregar dados:', error);
+        // toast.error('Erro ao carregar dados');
       } finally {
         setIsLoading(false);
       }
@@ -665,9 +730,101 @@ function App() {
       const formattedDate = currentDate.toLocaleDateString('pt-BR');
       const formattedTime = currentDate.toLocaleTimeString('pt-BR');
 
-      // Obter dados do cliente do localStorage
-      const clientData = localStorage.getItem('selectedClient');
-      const client = clientData ? JSON.parse(clientData) : null;
+      // Buscar dados do cliente do Supabase usando a ordem de serviço ativa
+      let client = null;
+      
+      // Buscar ordem de serviço ativa diretamente do Supabase
+      const { data: activeOrder, error: orderError } = await supabase
+        .from('service_orders')
+        .select('*, schedules(*)')
+        .eq('status', 'in_progress')
+        .single();
+      
+      console.log('Ordem ativa do Supabase:', activeOrder, 'Erro:', orderError);
+      
+      if (activeOrder && !orderError) {
+        
+        // Buscar cliente através do schedule associado à ordem
+        if (activeOrder.schedules && activeOrder.schedules.clients) {
+          const data = activeOrder.schedules.clients;
+          client = {
+            id: data.id,
+            code: data.code || 'N/A',
+            name: data.name || 'N/A',
+            cnpj: data.cnpj || 'N/A',
+            phone: data.phone || 'N/A',
+            email: data.email || 'N/A',
+            address: data.address || 'N/A',
+            branch: data.branch || 'N/A',
+            contact: data.contact || 'N/A',
+            city: data.city || 'N/A',
+            state: data.state || 'N/A',
+            neighborhood: data.neighborhood || 'N/A',
+            zip_code: data.zip_code || 'N/A',
+            document: data.document || data.cnpj || 'N/A'
+          };
+          console.log('Cliente encontrado via ordem ativa:', client);
+        } else if (activeOrder.schedule_id) {
+          // Fallback: buscar schedule separadamente se não veio no join
+          try {
+            const { data: schedule, error: scheduleError } = await supabase
+              .from('schedules')
+              .select('*, clients(*)')
+              .eq('id', activeOrder.schedule_id)
+              .single();
+            
+            if (!scheduleError && schedule?.clients) {
+              const data = schedule.clients;
+              client = {
+                id: data.id,
+                code: data.code || 'N/A',
+                name: data.name || 'N/A',
+                cnpj: data.cnpj || 'N/A',
+                phone: data.phone || 'N/A',
+                email: data.email || 'N/A',
+                address: data.address || 'N/A',
+                branch: data.branch || 'N/A',
+                contact: data.contact || 'N/A',
+                city: data.city || 'N/A',
+                state: data.state || 'N/A',
+                neighborhood: data.neighborhood || 'N/A',
+                zip_code: data.zip_code || 'N/A',
+                document: data.document || data.cnpj || 'N/A'
+              };
+              console.log('Cliente encontrado via schedule separado:', client);
+            }
+          } catch (supabaseError) {
+            console.error('Erro na consulta ao Supabase:', supabaseError);
+          }
+        }
+      }
+      
+      // Fallback: tentar localStorage apenas se não conseguiu do Supabase
+      if (!client) {
+        console.log('Cliente não encontrado no Supabase, tentando localStorage...');
+        const clientData = localStorage.getItem('selectedClient');
+        console.log('Dados do selectedClient no localStorage:', clientData);
+        if (clientData) {
+          const parsedClient = JSON.parse(clientData);
+          console.log('Cliente parseado do localStorage:', parsedClient);
+          // Garantir que o formato seja consistente
+          client = {
+            code: parsedClient.code || 'N/A',
+            name: parsedClient.name || 'Cliente não selecionado',
+            branch: parsedClient.branch || 'N/A',
+            document: parsedClient.document || parsedClient.cnpj || 'N/A',
+            cnpj: parsedClient.cnpj || 'N/A',
+            city: parsedClient.city || 'N/A',
+            address: parsedClient.address || 'N/A',
+            contact: parsedClient.contact || 'N/A',
+            phone: parsedClient.phone || 'N/A',
+            email: parsedClient.email || 'N/A'
+          };
+        }
+        console.log('Usando dados do cliente do localStorage como fallback:', client);
+      }
+      
+      console.log('Cliente final que será usado no PDF:', client);
 
       // Agrupar dispositivos por tipo
       const deviceGroups = state.savedDevices.reduce((acc, device) => {
@@ -852,9 +1009,38 @@ function App() {
       // Gerar e baixar o PDF
       try {
         const pdfBlob = await generateServiceOrderPDF(serviceData as any);
-        const url = window.URL.createObjectURL(pdfBlob);
+        
+        // Converter blob para base64 usando Promise
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            try {
+              const result = reader.result as string;
+              const base64 = result.split(',')[1];
+              resolve(base64);
+            } catch (error) {
+              reject(error);
+            }
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(pdfBlob);
+        });
+        
+        // Usar o novo serviço de compartilhamento
+        const success = await fileSharingService.shareFile({
+          filename: `ordem-servico-${serviceData.orderNumber}.pdf`,
+          data: base64Data,
+          mimeType: 'application/pdf'
+        });
+        
+        if (!success) {
+          console.error('Falha no compartilhamento do arquivo');
+          // Não fazer fallback para download, apenas mostrar erro
+          return;
+        }
         
         // Adicionar à lista de ordens de serviço
+        const url = window.URL.createObjectURL(pdfBlob);
         dispatch({
           type: 'ADD_SERVICE_ORDER',
           payload: {
@@ -870,14 +1056,6 @@ function App() {
           } as any
         });
 
-        // Baixar o PDF
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `ordem-servico-${serviceData.orderNumber}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
         // Limpar os campos após salvar
         setServiceType('');
         setTargetPest('');
@@ -891,42 +1069,35 @@ function App() {
         // Limpar o horário de início do localStorage
         localStorage.removeItem('serviceStartTime');
 
-        showNotification('Ordem de serviço finalizada com sucesso!', 'success');
+        // showNotification('Ordem de serviço finalizada com sucesso!', 'success');
         
-        // Obter o ID do agendamento ativo
-        const savedOrders = localStorage.getItem('safeprag_service_orders');
-        if (savedOrders) {
-          const orders = JSON.parse(savedOrders);
-          const activeOrder = orders.find((order: any) => order.status === 'in_progress');
-          if (activeOrder) {
+        // Obter o ID do agendamento ativo e finalizar a OS corretamente
+        const activeOrder = await getActiveServiceOrder();
+        if (activeOrder) {
+          try {
+            // Usar a função finishServiceOrder que faz toda a lógica correta
+            await finishServiceOrder(activeOrder.id);
+            
             // Disparar evento de finalização com sucesso
             const finishEvent = new CustomEvent('serviceOrderFinished', { 
               detail: { success: true }
             });
             window.dispatchEvent(finishEvent);
-
-            // Disparar evento de atualização do card
-            const updateEvent = new CustomEvent('scheduleUpdate', {
-              detail: { 
-                scheduleId: activeOrder.scheduleId,
-                status: 'completed'
-              }
-            });
-            window.dispatchEvent(updateEvent);
-
-            // Atualizar o status do agendamento
-            updateScheduleStatus(activeOrder.scheduleId, 'completed');
+          } catch (error) {
+            console.error('Erro ao finalizar ordem de serviço:', error);
+            // showNotification('Erro ao finalizar ordem de serviço. Tente novamente.', 'error');
+            return;
           }
         }
         
         setActiveTab('schedule');
       } catch (pdfError) {
         console.error('Erro ao gerar PDF:', pdfError);
-        showNotification('Erro ao gerar o PDF. Verifique os dados e tente novamente.', 'error');
+        // showNotification('Erro ao gerar o PDF. Verifique os dados e tente novamente.', 'error');
       }
     } catch (error) {
       console.error('Erro ao finalizar ordem de serviço:', error);
-      showNotification('Erro ao finalizar ordem de serviço. Tente novamente.', 'error');
+      // showNotification('Erro ao finalizar ordem de serviço. Tente novamente.', 'error');
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
@@ -1096,10 +1267,10 @@ function App() {
         } as any // Usar any temporariamente para o objeto completo
       });
 
-      showNotification('Ordem de serviço gerada e baixada com sucesso!', 'success');
+      // showNotification('Ordem de serviço gerada e baixada com sucesso!', 'success');
     } catch (error) {
       console.error('Erro ao gerar ordem de serviço:', error);
-      showNotification('Erro ao gerar ordem de serviço. Tente novamente.', 'error');
+      // showNotification('Erro ao gerar ordem de serviço. Tente novamente.', 'error');
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
@@ -1133,11 +1304,11 @@ function App() {
   const navItems = [
     { id: 'schedule', label: 'Agenda', icon: Calendar },
     { id: 'activity', label: 'Atividade', icon: Activity },
-    { id: 'settings', label: 'Admin', icon: Settings },
+    { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
   const getActiveServiceOrder = () => {
-    const savedOrders = localStorage.getItem('serviceOrders');
+    const savedOrders = localStorage.getItem('safeprag_service_orders');
     if (savedOrders) {
       const orders = JSON.parse(savedOrders);
       return orders.find(order => order.status === 'in_progress');
@@ -1146,7 +1317,7 @@ function App() {
   };
 
   const finishServiceOrder = (orderId: number) => {
-    const savedOrders = localStorage.getItem('serviceOrders');
+    const savedOrders = localStorage.getItem('safeprag_service_orders');
     if (savedOrders) {
       const orders = JSON.parse(savedOrders);
       const updatedOrders = orders.map(order => {
@@ -1155,12 +1326,12 @@ function App() {
         }
         return order;
       });
-      localStorage.setItem('serviceOrders', JSON.stringify(updatedOrders));
+      localStorage.setItem('safeprag_service_orders', JSON.stringify(updatedOrders));
     }
   };
 
   const approveServiceOrder = (orderId: number) => {
-    const savedOrders = localStorage.getItem('serviceOrders');
+    const savedOrders = localStorage.getItem('safeprag_service_orders');
     if (savedOrders) {
       const orders = JSON.parse(savedOrders);
       const updatedOrders = orders.map(order => {
@@ -1169,7 +1340,7 @@ function App() {
         }
         return order;
       });
-      localStorage.setItem('serviceOrders', JSON.stringify(updatedOrders));
+      localStorage.setItem('safeprag_service_orders', JSON.stringify(updatedOrders));
     }
   };
 
@@ -1262,7 +1433,7 @@ function App() {
         {activeTab === 'settings' && <AdminPage />}
       </div>
 
-      <NotificationToast />
+      {/* Notificações removidas */}
       <BottomNavBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -1271,22 +1442,21 @@ function App() {
       <ApprovalModal
         isOpen={showApprovalModal}
         onClose={() => setShowApprovalModal(false)}
-        onConfirm={(data) => {
+        onConfirm={async (data) => {
           console.log('Dados de aprovação:', data);
-          const activeOrder = getActiveServiceOrder();
+          const activeOrder = await getActiveServiceOrder();
           if (activeOrder) {
-            approveServiceOrder(activeOrder.id)
-              .then(() => {
-                showNotification('Ordem de serviço aprovada com sucesso!', 'success');
-                setActiveTab('schedule');
-                setShowApprovalModal(false);
-              })
-              .catch(error => {
-                console.error('Erro ao aprovar OS:', error);
-                showNotification('Erro ao aprovar ordem de serviço.', 'error');
-              });
+            try {
+              await approveServiceOrder(activeOrder.id);
+              // showNotification('Ordem de serviço aprovada com sucesso!', 'success');
+              setActiveTab('schedule');
+              setShowApprovalModal(false);
+            } catch (error) {
+              console.error('Erro ao aprovar OS:', error);
+              // showNotification('Erro ao aprovar ordem de serviço.', 'error');
+            }
           } else {
-            showNotification('Nenhuma ordem de serviço ativa encontrada para aprovar.', 'warning');
+            // showNotification('Nenhuma ordem de serviço ativa encontrada para aprovar.', 'warning');
             setShowApprovalModal(false);
           }
         }}

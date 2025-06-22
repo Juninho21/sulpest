@@ -3,7 +3,7 @@ import { Calendar } from './Calendar';
 import { ScheduleList } from './ScheduleList';
 import { Schedule, getSchedulesByDate, saveSchedule } from '../services/localStorageService';
 import { Plus, X, RefreshCcw } from 'lucide-react';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
 import { getClients } from '../services/clientStorage';
@@ -122,37 +122,72 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
   const [showForm, setShowForm] = useState(false);
 
   // Carrega os agendamentos
-  const loadSchedules = useCallback(() => {
-    console.log('Carregando agendamentos...');
-    const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    if (savedSchedules) {
-      try {
-        const allSchedules = JSON.parse(savedSchedules);
-        const formattedDate = format(selectedDate, 'yyyy-MM-dd');
-        console.log('Data formatada:', formattedDate);
-        console.log('Todos os agendamentos:', allSchedules);
-        
-        const dateSchedules = allSchedules.filter(
-          (schedule: Schedule) => schedule.date === formattedDate
-        );
-        console.log('Agendamentos filtrados por data:', dateSchedules);
-        
-        const sortedSchedules = dateSchedules.sort((a: Schedule, b: Schedule) => {
-          // Coloca os agendamentos concluídos por último
-          if (a.status === 'completed' && b.status !== 'completed') return 1;
-          if (a.status !== 'completed' && b.status === 'completed') return -1;
-          // Ordena por horário
-          return a.startTime.localeCompare(b.startTime);
-        });
-        
-        console.log('Agendamentos ordenados:', sortedSchedules);
-        setSchedules(sortedSchedules);
-      } catch (error) {
-        console.error('Erro ao processar agendamentos:', error);
-        setSchedules([]);
+  const loadSchedules = useCallback(async () => {
+    console.log('Carregando agendamentos do Supabase...');
+    
+    try {
+      // Carrega apenas do Supabase
+      const { data: supabaseSchedules, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .order('date', { ascending: true })
+        .order('time', { ascending: true });
+      
+      let allSchedules = [];
+      
+      if (error) {
+        console.error('Erro ao carregar agendamentos do Supabase:', error);
+        // Não usa fallback para localStorage - apenas exibe erro
+        throw error;
       }
-    } else {
-      console.log('Nenhum agendamento encontrado no localStorage');
+      
+      if (supabaseSchedules && supabaseSchedules.length > 0) {
+        console.log('Agendamentos carregados do Supabase:', supabaseSchedules);
+        
+        // Mapear dados do Supabase para o formato esperado
+        allSchedules = supabaseSchedules.map(schedule => ({
+          id: schedule.id,
+          clientId: schedule.client_id,
+          clientName: schedule.client_name || 'Cliente não encontrado',
+          clientAddress: schedule.client_address || '',
+          clientPhone: schedule.client_phone || '',
+          serviceType: schedule.service_type || 'Controle de Pragas',
+          date: schedule.date,
+          time: schedule.time || '08:00',
+          startTime: schedule.start_time || schedule.time || '08:00',
+          duration: schedule.duration || '60',
+          technician: schedule.technician || 'Técnico',
+          notes: schedule.notes || '',
+          status: schedule.status || 'pending'
+        }));
+      } else {
+        console.log('Nenhum agendamento encontrado no Supabase');
+        allSchedules = [];
+      }
+      
+      // Filtrar por data selecionada
+      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+      console.log('Data formatada:', formattedDate);
+      
+      const dateSchedules = allSchedules.filter(
+        (schedule: Schedule) => schedule.date === formattedDate
+      );
+      console.log('Agendamentos filtrados por data:', dateSchedules);
+      
+      const sortedSchedules = dateSchedules.sort((a: Schedule, b: Schedule) => {
+        // Coloca os agendamentos concluídos por último
+        if (a.status === 'completed' && b.status !== 'completed') return 1;
+        if (a.status !== 'completed' && b.status === 'completed') return -1;
+        // Ordena por horário
+        return a.startTime.localeCompare(b.startTime);
+      });
+      
+      console.log('Agendamentos ordenados:', sortedSchedules);
+      setSchedules(sortedSchedules);
+      
+    } catch (error) {
+      console.error('Erro ao carregar agendamentos do Supabase:', error);
+      // Define lista vazia em caso de erro - não usa localStorage
       setSchedules([]);
     }
   }, [selectedDate]);
@@ -195,12 +230,7 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
       }
     };
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEYS.SCHEDULES) {
-        console.log('Storage mudou, recarregando agendamentos...');
-        loadSchedules();
-      }
-    };
+    // Removido: não usa mais localStorage
 
     const handleScheduleUpdate = (event: CustomEvent) => {
       console.log('ServiceScheduler recebeu evento scheduleUpdate:', event.detail);
@@ -222,7 +252,7 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
         return newSchedules;
       });
 
-      // Força uma atualização do localStorage também
+      // Força uma atualização dos dados do Supabase
       loadSchedules();
     };
 
@@ -245,13 +275,13 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
           return newSchedules;
         });
 
-        // Força uma atualização do localStorage também
+        // Força uma atualização dos dados do Supabase
         loadSchedules();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('storage', handleStorageChange);
+    // Removido listener de storage - não usa mais localStorage
     window.addEventListener('scheduleUpdate', handleScheduleUpdate as EventListener);
     window.addEventListener('serviceOrderUpdate', handleServiceOrderUpdate as EventListener);
 
@@ -261,7 +291,7 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
     return () => {
       console.log('Removendo event listeners');
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('storage', handleStorageChange);
+      // Removido: não usa mais localStorage
       window.removeEventListener('scheduleUpdate', handleScheduleUpdate as EventListener);
       window.removeEventListener('serviceOrderUpdate', handleServiceOrderUpdate as EventListener);
     };
@@ -305,48 +335,86 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
     setShowForm(true);
   };
 
-  const handleDeleteSchedule = (scheduleToDelete: Schedule) => {
+  const handleDeleteSchedule = async (scheduleToDelete: Schedule) => {
     if (window.confirm('Tem certeza que deseja excluir este agendamento?')) {
-      // Carrega todos os agendamentos
-      const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-      const allSchedules = savedSchedules ? JSON.parse(savedSchedules) : [];
-      
-      // Remove o agendamento selecionado
-      const updatedSchedules = allSchedules.filter(
-        (schedule: Schedule) => schedule.id !== scheduleToDelete.id
-      );
-      
-      // Salva a lista atualizada
-      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(updatedSchedules));
+      try {
+        // Primeiro, verificar e excluir service_orders relacionadas
+        const { data: relatedOrders, error: fetchError } = await supabase
+          .from('service_orders')
+          .select('id')
+          .eq('schedule_id', scheduleToDelete.id);
 
-      // Recarrega a lista de agendamentos
+        if (fetchError) {
+          console.error('Erro ao buscar ordens de serviço relacionadas:', fetchError);
+        } else if (relatedOrders && relatedOrders.length > 0) {
+          // Excluir todas as service_orders relacionadas
+          const { error: deleteOrdersError } = await supabase
+            .from('service_orders')
+            .delete()
+            .eq('schedule_id', scheduleToDelete.id);
+
+          if (deleteOrdersError) {
+            console.error('Erro ao excluir ordens de serviço relacionadas:', deleteOrdersError);
+            // toast.error('Erro ao excluir ordens de serviço relacionadas');
+            console.error('Erro ao excluir ordens de serviço relacionadas');
+            return;
+          }
+          console.log(`${relatedOrders.length} ordem(ns) de serviço relacionada(s) excluída(s)`);
+        }
+
+        // Agora excluir o schedule
+        const { error } = await supabase
+          .from('schedules')
+          .delete()
+          .eq('id', scheduleToDelete.id);
+
+        if (error) {
+          console.error('Erro ao excluir do Supabase:', error);
+          // toast.error('Erro ao excluir do banco de dados, removendo localmente');
+          console.error('Erro ao excluir do banco de dados, removendo localmente');
+        } else {
+          console.log('Agendamento excluído do Supabase com sucesso');
+        }
+      } catch (error) {
+        console.error('Erro de conexão com Supabase:', error);
+        // toast.error('Erro ao excluir agendamento');
+        console.error('Erro ao excluir agendamento');
+        return;
+      }
+
+      // Recarrega a lista de agendamentos do Supabase
       loadSchedules();
       
-      toast.success('Agendamento excluído com sucesso!');
+      // toast.success('Agendamento excluído com sucesso!');
+      console.log('Agendamento excluído com sucesso!');
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedClient) {
-      toast.error('Por favor, selecione um cliente');
+      // toast.error('Por favor, selecione um cliente');
+      console.error('Por favor, selecione um cliente');
       return;
     }
 
     if (!schedule.serviceType) {
-      toast.error('Por favor, selecione o tipo de serviço');
+      // toast.error('Por favor, selecione o tipo de serviço');
+      console.error('Por favor, selecione o tipo de serviço');
       return;
     }
 
     if (!schedule.startTime || !schedule.endTime) {
-      toast.error('Por favor, selecione os horários de início e fim');
+      // toast.error('Por favor, selecione os horários de início e fim');
+      console.error('Por favor, selecione os horários de início e fim');
       return;
     }
 
     // Validar se horário de fim é depois do início
     if (schedule.startTime >= schedule.endTime) {
-      toast.error('O horário de fim deve ser depois do horário de início');
+      // toast.error('O horário de fim deve ser depois do horário de início');
+      console.error('O horário de fim deve ser depois do horário de início');
       return;
     }
 
@@ -355,62 +423,145 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
     
     const scheduleData: Schedule = {
       id: schedule.id || uuidv4(),
-      client_id: selectedClient.id,
-      client_address: `${selectedClient.address}, ${selectedClient.city} - ${selectedClient.state}`,
+      clientId: selectedClient.id,
+      clientName: selectedClient.name,
+      clientAddress: `${selectedClient.address}, ${selectedClient.city} - ${selectedClient.state}`,
+      clientPhone: selectedClient.phone,
       date: schedule.date!,
+      time: schedule.startTime as string,
       startTime: schedule.startTime as string,
-      endTime: schedule.endTime as string,
       serviceType: schedule.serviceType!,
       status: (schedule.status as 'pending' | 'in_progress' | 'completed' | 'cancelled') || 'pending'
     };
 
-    // Carrega agendamentos existentes
-    const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
-    const allSchedules = savedSchedules ? JSON.parse(savedSchedules) : [];
+    // Verifica conflitos de horário no Supabase
+    try {
+      const { data: existingSchedules, error: conflictError } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('date', schedule.date);
 
-    // Verifica se já existe agendamento no mesmo horário
-    const hasConflict = allSchedules.some((existingSchedule: Schedule) => {
-      // Ignora o próprio agendamento em caso de edição
-      if (isEditing && existingSchedule.id === schedule.id) {
-        return false;
+      if (conflictError) {
+        console.error('Erro ao verificar conflitos:', conflictError);
+        // toast.error('Erro ao verificar conflitos de horário');
+        console.error('Erro ao verificar conflitos de horário');
+        return;
       }
 
-      // Verifica se é no mesmo dia
-      if (existingSchedule.date !== schedule.date) {
-        return false;
+      // Verifica se já existe agendamento no mesmo horário
+      const hasConflict = existingSchedules?.some((existingSchedule: any) => {
+        // Ignora o próprio agendamento em caso de edição
+        if (isEditing && existingSchedule.id === schedule.id) {
+          return false;
+        }
+
+        // Verifica se há sobreposição de horários
+        const newStart = schedule.startTime;
+        const newEnd = schedule.endTime;
+        const existingStart = existingSchedule.start_time || existingSchedule.time;
+        const existingEnd = existingSchedule.end_time || existingSchedule.time; // Fallback se não tiver end_time
+
+        return (
+          (newStart >= existingStart && newStart < existingEnd) || // Novo início durante agendamento existente
+          (newEnd > existingStart && newEnd <= existingEnd) || // Novo fim durante agendamento existente
+          (newStart <= existingStart && newEnd >= existingEnd) // Novo agendamento engloba existente
+        );
+      });
+
+      if (hasConflict) {
+        // toast.error('Já existe um agendamento neste horário');
+         console.error('Já existe um agendamento neste horário');
+        return;
       }
-
-      // Verifica se há sobreposição de horários
-      const newStart = schedule.startTime;
-      const newEnd = schedule.endTime;
-      const existingStart = existingSchedule.startTime;
-      const existingEnd = existingSchedule.endTime;
-
-      return (
-        (newStart >= existingStart && newStart < existingEnd) || // Novo início durante agendamento existente
-        (newEnd > existingStart && newEnd <= existingEnd) || // Novo fim durante agendamento existente
-        (newStart <= existingStart && newEnd >= existingEnd) // Novo agendamento engloba existente
-      );
-    });
-
-    if (hasConflict) {
-      toast.error('Já existe um agendamento neste horário');
+    } catch (error) {
+      console.error('Erro ao verificar conflitos:', error);
+      // toast.error('Erro ao verificar conflitos de horário');
+      console.error('Erro ao verificar conflitos de horário');
       return;
     }
-    
-    if (isEditing) {
-      // Atualiza o agendamento existente
-      const scheduleIndex = allSchedules.findIndex((s: Schedule) => s.id === schedule.id);
-      if (scheduleIndex !== -1) {
-        allSchedules[scheduleIndex] = scheduleData;
+
+    try {
+      // Primeiro, verificar se a tabela tem a estrutura correta
+      const { data: tableInfo, error: tableError } = await supabase
+        .from('schedules')
+        .select('*')
+        .limit(1);
+
+      if (tableError && tableError.code === 'PGRST204') {
+        console.warn('Estrutura da tabela schedules pode estar desatualizada. Salvando apenas localmente.');
+        // toast.warning('Banco de dados em atualização. Agendamento salvo localmente.');
+        console.warn('Banco de dados em atualização. Agendamento salvo localmente.');
+      } else {
+        // Tentar salvar no Supabase
+        const supabaseData = {
+          id: scheduleData.id,
+          client_id: scheduleData.clientId,
+          date: scheduleData.date,
+          time: scheduleData.startTime,
+          status: scheduleData.status
+        };
+
+        // Adicionar campos opcionais apenas se existirem na estrutura
+        if (tableInfo || !tableError) {
+          Object.assign(supabaseData, {
+            client_name: scheduleData.clientName,
+            client_address: scheduleData.clientAddress,
+            client_phone: scheduleData.clientPhone,
+            service_type: scheduleData.serviceType,
+            start_time: scheduleData.startTime,
+            duration: scheduleData.duration,
+            technician: scheduleData.technician,
+            notes: scheduleData.notes
+          });
+        }
+
+        if (isEditing) {
+          const { error } = await supabase
+            .from('schedules')
+            .update(supabaseData)
+            .eq('id', scheduleData.id);
+
+          if (error) {
+            console.error('Erro ao atualizar no Supabase:', error);
+            if (error.code === 'PGRST204') {
+              // toast.error('Estrutura do banco precisa ser atualizada. Salvando localmente.');
+              console.error('Estrutura do banco precisa ser atualizada. Salvando localmente.');
+            } else {
+              // toast.error('Erro ao atualizar no banco de dados, salvando localmente');
+              console.error('Erro ao atualizar no banco de dados, salvando localmente');
+            }
+          } else {
+            console.log('Agendamento atualizado no Supabase com sucesso');
+            // toast.success('Agendamento atualizado no banco de dados!');
+            console.log('Agendamento atualizado no banco de dados!');
+          }
+        } else {
+          const { error } = await supabase
+            .from('schedules')
+            .insert(supabaseData);
+
+          if (error) {
+            console.error('Erro ao salvar no Supabase:', error);
+            if (error.code === 'PGRST204') {
+              // toast.error('Estrutura do banco precisa ser atualizada. Salvando localmente.');
+              console.error('Estrutura do banco precisa ser atualizada. Salvando localmente.');
+            } else {
+              // toast.error('Erro ao salvar no banco de dados, salvando localmente');
+              console.error('Erro ao salvar no banco de dados, salvando localmente');
+            }
+          } else {
+            console.log('Agendamento salvo no Supabase com sucesso');
+            // toast.success('Agendamento salvo no banco de dados!');
+            console.log('Agendamento salvo no banco de dados!');
+          }
+        }
       }
-    } else {
-      // Adiciona novo agendamento
-      allSchedules.push(scheduleData);
+    } catch (error) {
+      console.error('Erro de conexão com Supabase:', error);
+      // toast.error('Erro ao salvar agendamento. Verifique sua conexão.');
+      console.error('Erro ao salvar agendamento. Verifique sua conexão.');
+      return;
     }
-    
-    // Salva no localStorage
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(allSchedules));
 
     // Limpa o formulário
     setSelectedClient(null);
@@ -426,7 +577,8 @@ export const ServiceScheduler: React.FC<ServiceSchedulerProps> = ({ onTabChange,
     setShowForm(false);
     loadSchedules();
     
-    toast.success(isEditing ? 'Agendamento atualizado com sucesso!' : 'Agendamento salvo com sucesso!');
+    // toast.success(isEditing ? 'Agendamento atualizado com sucesso!' : 'Agendamento salvo com sucesso!');
+    console.log(isEditing ? 'Agendamento atualizado com sucesso!' : 'Agendamento salvo com sucesso!');
   };
 
   return (

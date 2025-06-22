@@ -68,7 +68,7 @@ export const ProductSelector: React.FC<ProductSelectorProps> = ({ onProductSelec
                       <p className="text-sm text-gray-600">{product.activeIngredient}</p>
                     </div>
                     <div className="text-right text-sm text-gray-500">
-                      <div>{`${product.unit} ${product.measure}`}</div>
+                      <div>{product.measure}</div>
                       <div>Validade: {formatDate(product.expirationDate)}</div>
                     </div>
                   </div>

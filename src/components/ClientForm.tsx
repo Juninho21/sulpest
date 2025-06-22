@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify'; // Removido
 import { Trash2, Pencil } from 'lucide-react';
 import { addClient, getClients, deleteClient, updateClient } from '../services/clientStorage';
 import { supabase } from '../config/supabase';
@@ -137,13 +137,13 @@ export const ClientForm: React.FC = () => {
         .upsert(clientData, { onConflict: 'id' });
       if (error) throw error;
 
-      toast.success(isEditing ? 'Cliente atualizado com sucesso!' : 'Cliente cadastrado com sucesso!');
+      // toast.success(isEditing ? 'Cliente atualizado com sucesso!' : 'Cliente cadastrado com sucesso!');
       setClient(initialState);
       setIsEditing(false);
       loadClients();
     } catch (error) {
       console.error('Erro ao salvar cliente:', error);
-      toast.error('Erro ao salvar cliente');
+      // toast.error('Erro ao salvar cliente');
     }
   };
 
@@ -161,10 +161,10 @@ export const ClientForm: React.FC = () => {
 
       // Atualizar a lista de clientes
       await loadClients();
-      toast.success('Cliente excluído com sucesso!');
+      // toast.success('Cliente excluído com sucesso!');
     } catch (error) {
       console.error('Erro ao excluir cliente:', error);
-      toast.error('Erro ao excluir cliente');
+      // toast.error('Erro ao excluir cliente');
     }
   };
 
@@ -189,23 +189,23 @@ export const ClientForm: React.FC = () => {
 
   const validateForm = (): boolean => {
     if (!client.branch.trim()) {
-      toast.error('Razão Social é obrigatória');
+      // toast.error('Razão Social é obrigatória');
       return false;
     }
     if (!client.name.trim()) {
-      toast.error('Nome Fantasia é obrigatório');
+      // toast.error('Nome Fantasia é obrigatório');
       return false;
     }
     if (!client.cnpj.trim()) {
-      toast.error('CNPJ é obrigatório');
+      // toast.error('CNPJ é obrigatório');
       return false;
     }
     if (!client.address.trim()) {
-      toast.error('Endereço é obrigatório');
+      // toast.error('Endereço é obrigatório');
       return false;
     }
     if (!client.contact.trim()) {
-      toast.error('Contato é obrigatório');
+      // toast.error('Contato é obrigatório');
       return false;
     }
     return true;
@@ -225,7 +225,7 @@ export const ClientForm: React.FC = () => {
     } catch (error) {
       console.error('Erro ao salvar cliente:', error);
       setError('Erro ao salvar cliente. Por favor, tente novamente.');
-      toast.error('Erro ao salvar cliente.');
+      // toast.error('Erro ao salvar cliente.');
     } finally {
       setLoading(false);
     }

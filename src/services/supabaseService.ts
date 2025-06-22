@@ -104,7 +104,6 @@ export const syncProductsToSupabase = async (): Promise<{success: boolean, count
           registration: product.registration,
           batch: product.batch,
           expiration_date: product.expirationDate,
-          unit: product.unit,
           measure: product.measure,
           diluent: product.diluent,
           created_at: product.created_at || new Date().toISOString(),
@@ -173,7 +172,6 @@ export const getProductsFromSupabase = async (): Promise<Product[]> => {
       registration: item.registration,
       batch: item.batch,
       expirationDate: item.expiration_date,
-      unit: item.unit,
       measure: item.measure,
       diluent: item.diluent
     }));
@@ -283,14 +281,8 @@ export const supabaseService = {
       console.log('Objeto company antes de salvar:', company);
       const companyToSave = {
         id: 1, // ou o id correto da sua empresa
-        ...company,
-        environmental_license_number: company.environmentalLicense?.number || '',
-        environmental_license_date: company.environmentalLicense?.date || '',
-        sanitary_permit_number: company.sanitaryPermit?.number || '',
-        sanitary_permit_expiry_date: company.sanitaryPermit?.expiryDate || '',
+        ...company
       };
-      delete companyToSave.environmentalLicense;
-      delete companyToSave.sanitaryPermit;
 
       console.log('Dados enviados para o Supabase:', companyToSave);
 
@@ -318,21 +310,7 @@ export const supabaseService = {
       
       if (error) throw error;
       
-      if (data) {
-        const companyData = {
-          ...data,
-          environmentalLicense: {
-            number: data.environmental_license_number || '',
-            date: data.environmental_license_date || ''
-          },
-          sanitaryPermit: {
-            number: data.sanitary_permit_number || '',
-            expiryDate: data.sanitary_permit_expiry_date || ''
-          }
-        };
-        return companyData;
-      }
-      return null;
+      return data;
     } catch (error) {
       console.error('Erro ao obter dados da empresa:', error);
       return null;
@@ -348,14 +326,8 @@ async function migrateCompanyFromLocalStorage() {
 
   const companyToSave = {
     id: 1,
-    ...company,
-    environmental_license_number: company.environmentalLicense?.number || '',
-    environmental_license_date: company.environmentalLicense?.date || '',
-    sanitary_permit_number: company.sanitaryPermit?.number || '',
-    sanitary_permit_expiry_date: company.sanitaryPermit?.expiryDate || '',
+    ...company
   };
-  delete companyToSave.environmentalLicense;
-  delete companyToSave.sanitaryPermit;
 
   const { error } = await supabase.from('company').upsert(companyToSave);
   if (error) {

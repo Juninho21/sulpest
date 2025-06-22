@@ -3,7 +3,6 @@ import { Layout } from '../components/Layout';
 import { SchedulingPage } from '../pages/Scheduling';
 import App from '../App';
 import { AdminPage } from '../components/AdminPage';
-import ServiceActivity from '../components/ServiceActivity';
 // import { SupabaseIntegration } from '../pages/Admin/SupabaseIntegration';
 import { Login } from "../components/Login";
 import { Register } from '../components/Register';
@@ -86,10 +85,7 @@ export const router = createBrowserRouter([
               }
             ]
           },
-          {
-            path: 'atividades',
-            element: <ServiceActivity serviceType="" targetPest="" location="" observations="" applicationMethod="" productAmount="" state={{}} startTime={null} endTime={null} isLoading={false} showDeviceModal={false} onServiceTypeChange={() => {}} onTargetPestChange={() => {}} onLocationChange={() => {}} onApplicationMethodChange={() => {}} onProductAmountChange={() => {}} onObservationsChange={() => {}} onOpenDeviceModal={() => {}} onCloseDeviceModal={() => {}} onFinishOS={() => {}} onApproveOS={() => {}} onProductSelect={() => {}} onDeviceChange={() => {}} onStatusChange={() => {}} onQuantityChange={() => {}} onDeviceClick={() => {}} onSelectAll={() => {}} onSaveDevices={() => {}} canFinishOS={() => false} canSave={false} />
-          }
+
         ]
       }
     ]

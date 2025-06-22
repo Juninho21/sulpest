@@ -6,7 +6,6 @@ export interface Product {
   registration: string;
   batch: string;
   expirationDate: string;
-  unit: string;
   measure: 'ml' | 'g';
   diluent: string;
 }

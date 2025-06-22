@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Database, RotateCw, Trash2, Upload, X } from 'lucide-react';
-import { toast } from 'react-toastify';
+// import { toast } from 'react-toastify';
 import { Button } from '../ui/button';
 import { Modal } from '../Modal';
 import { STORAGE_KEYS, backupAllData, restoreBackup } from '../../services/storageKeys';
@@ -24,10 +24,12 @@ const BackupMaintenance = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Backup realizado com sucesso!');
+      // toast.success('Backup realizado com sucesso!');
+      console.log('Backup realizado com sucesso!');
     } catch (error) {
       console.error('Erro ao fazer backup:', error);
-      toast.error('Erro ao fazer backup');
+      // toast.error('Erro ao fazer backup');
+      console.error('Erro ao fazer backup');
     }
   };
 
@@ -41,11 +43,13 @@ const BackupMaintenance = () => {
       restoreBackup(backupObj);
       setShowRestoreModal(false);
       setBackupData('');
-      toast.success('Backup restaurado com sucesso!');
+      // toast.success('Backup restaurado com sucesso!');
+      console.log('Backup restaurado com sucesso!');
       window.location.reload(); // Recarrega a página para atualizar os dados
     } catch (error) {
       console.error('Erro ao restaurar backup:', error);
-      toast.error('Erro ao restaurar backup. Verifique se o arquivo é válido.');
+      // toast.error('Erro ao restaurar backup. Verifique se o arquivo é válido.');
+      console.error('Erro ao restaurar backup. Verifique se o arquivo é válido.');
     }
   };
 
@@ -62,11 +66,13 @@ const BackupMaintenance = () => {
         setBackupData(content);
       } catch (error) {
         console.error('Erro ao ler arquivo de backup:', error);
-        toast.error('Arquivo de backup inválido. Selecione um arquivo JSON válido.');
+        // toast.error('Arquivo de backup inválido. Selecione um arquivo JSON válido.');
+        console.error('Arquivo de backup inválido. Selecione um arquivo JSON válido.');
       }
     };
     reader.onerror = () => {
-      toast.error('Erro ao ler o arquivo');
+      // toast.error('Erro ao ler o arquivo');
+        console.error('Erro ao ler o arquivo');
     };
     reader.readAsText(file);
   };
@@ -84,7 +90,8 @@ const BackupMaintenance = () => {
       // Pequeno delay para mostrar o indicador de carregamento
       await new Promise(resolve => setTimeout(resolve, 800));
       cleanupSystemData();
-      toast.success('Sistema limpo com sucesso!');
+      // toast.success('Sistema limpo com sucesso!');
+      console.log('Sistema limpo com sucesso!');
       setShowCleanupModal(false);
       setIsCleaningSystem(false);
       // Recarregar a página após limpar o sistema
@@ -93,7 +100,8 @@ const BackupMaintenance = () => {
       }, 1500);
     } catch (error) {
       console.error('Erro ao limpar sistema:', error);
-      toast.error('Erro ao limpar sistema');
+      // toast.error('Erro ao limpar sistema');
+      console.error('Erro ao limpar sistema');
       setIsCleaningSystem(false);
     }
   };

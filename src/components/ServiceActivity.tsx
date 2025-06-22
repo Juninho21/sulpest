@@ -14,6 +14,8 @@ import { PestCountingModal } from './ServiceActivity/PestCountingModal';
 import { format } from 'date-fns';
 
 import { Pest, DevicePestCount } from '../types/pest.types';
+import { activityService, ServiceListItem, ActivityState } from '../services/activityService';
+import { STORAGE_KEYS } from '../services/storageKeys';
 
 interface ServiceActivityProps {
   serviceType: string;
@@ -50,14 +52,7 @@ interface ServiceActivityProps {
 }
 
 // Interface para um serviço individual na lista de serviços
-interface ServiceListItem {
-  id: string;
-  serviceType: string;
-  targetPest: string;
-  location: string;
-  product: any | null;
-  productAmount: string;
-}
+// Interface ServiceListItem movida para activityService.ts
 
 const ServiceActivity: React.FC<ServiceActivityProps> = ({
   serviceType,
@@ -151,72 +146,106 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
 
   const [availableServiceTypes, setAvailableServiceTypes] = useState<string[]>(initialServiceTypes);
   
-  // Função para salvar as contagens de pragas
+  // Função para salvar as contagens de pragas no Supabase
   const handleSavePestCounts = (counts: DevicePestCount[]) => {
     setPestCounts(counts);
-    // Salvar no localStorage para persistência
-    localStorage.setItem('pestCounts', JSON.stringify(counts));
-    // Salvar também na ordem de serviço ativa
-    const activeOrderStr = localStorage.getItem('active_service_order');
-    if (activeOrderStr) {
-      try {
-        const activeOrder = JSON.parse(activeOrderStr);
-        activeOrder.pestCounts = counts;
-        localStorage.setItem('active_service_order', JSON.stringify(activeOrder));
-      } catch (error) {
-        console.error('Erro ao salvar contagens de pragas na ordem de serviço ativa:', error);
-      }
+    
+    try {
+      // Salvar contagens de pragas no localStorage
+      localStorage.setItem(STORAGE_KEYS.PEST_COUNTS, JSON.stringify(counts));
+      console.log('Contagens de pragas salvas no localStorage:', counts);
+    } catch (error) {
+      console.error('Erro ao salvar contagens de pragas no localStorage:', error);
     }
-    // Salvar também na lista de ordens de serviço
-    const serviceOrdersStr = localStorage.getItem('safeprag_service_orders');
-    if (serviceOrdersStr) {
-      try {
-        const serviceOrders = JSON.parse(serviceOrdersStr);
-        const activeOrderIndex = serviceOrders.findIndex((order: any) => order.status === 'in_progress');
-        if (activeOrderIndex >= 0) {
-          serviceOrders[activeOrderIndex].pestCounts = counts;
-          localStorage.setItem('safeprag_service_orders', JSON.stringify(serviceOrders));
-        }
-      } catch (error) {
-        console.error('Erro ao salvar contagens de pragas na lista de ordens de serviço:', error);
-      }
-    }
-    console.log('Contagens de pragas salvas:', counts);
   };
 
-  // Carrega o horário do localStorage ao montar o componente
+  // Carrega dados do Supabase ao montar o componente
   useEffect(() => {
-    const storedStartTime = localStorage.getItem('serviceStartTime');
-    if (storedStartTime) {
-      setLocalStartTime(new Date(storedStartTime));
-    }
+    const loadActivityData = async () => {
+      try {
+        // Buscar ordem de serviço ativa
+        const activeOrder = await activityService.getActiveServiceOrder();
+        if (activeOrder) {
+          // Carregar estado da atividade
+          const activityState = await activityService.loadActivityState(activeOrder.id);
+          if (activityState) {
+            if (activityState.localStartTime) {
+              setLocalStartTime(activityState.localStartTime);
+            }
+            setAvailablePests(activityState.availablePests);
+            setAvailableServiceTypes(activityState.availableServiceTypes);
+            setShowNewPestInput(activityState.showNewPestInput);
+            setNewPest(activityState.newPest || '');
+            setShowNewServiceInput(activityState.showNewServiceInput);
+            setNewService(activityState.newService || '');
+          }
+          
+          // Carregar lista de serviços
+          const savedServiceList = await activityService.loadServiceList(activeOrder.id);
+          if (savedServiceList.length > 0) {
+            setServiceList(savedServiceList);
+            const currentId = activityState?.currentServiceId || savedServiceList[0].id;
+            setCurrentServiceId(currentId);
+          } else {
+            // Inicializar com serviço atual ou vazio
+            const initialService: ServiceListItem = {
+              id: Date.now().toString(),
+              serviceType: serviceType || '',
+              targetPest: targetPest || '',
+              location: location || '',
+              product: state.selectedProduct,
+              productAmount: productAmount || ''
+            };
+            setServiceList([initialService]);
+            setCurrentServiceId(initialService.id);
+          }
+          
+          // Carregar contagens de pragas do localStorage
+          try {
+            const savedPestCountsStr = localStorage.getItem(STORAGE_KEYS.PEST_COUNTS);
+            if (savedPestCountsStr) {
+              const savedPestCounts = JSON.parse(savedPestCountsStr);
+              setPestCounts(savedPestCounts);
+              console.log('Contagens de pragas carregadas do localStorage:', savedPestCounts);
+            }
+          } catch (error) {
+            console.error('Erro ao carregar contagens de pragas do localStorage:', error);
+          }
+          
+          // Carregar horário de início da ordem
+          if (activeOrder.start_time) {
+            setLocalStartTime(new Date(activeOrder.start_time));
+          }
+        } else {
+          // Sem ordem ativa, inicializar com dados vazios
+          const emptyService: ServiceListItem = {
+            id: Date.now().toString(),
+            serviceType: '',
+            targetPest: '',
+            location: '',
+            product: null,
+            productAmount: ''
+          };
+          setServiceList([emptyService]);
+          setCurrentServiceId(emptyService.id);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar dados da atividade do Supabase:', error);
+        // Fallback para inicialização básica
+        const emptyService: ServiceListItem = {
+          id: Date.now().toString(),
+          serviceType: '',
+          targetPest: '',
+          location: '',
+          product: null,
+          productAmount: ''
+        };
+        setServiceList([emptyService]);
+        setCurrentServiceId(emptyService.id);
+      }
+    };
     
-    // Inicializa a lista de serviços com o serviço atual se existir
-    // ou cria um serviço vazio para permitir a adição de múltiplos serviços
-    if (serviceType && targetPest) {
-      const initialService: ServiceListItem = {
-        id: Date.now().toString(),
-        serviceType,
-        targetPest,
-        location,
-        product: state.selectedProduct,
-        productAmount
-      };
-      setServiceList([initialService]);
-      setCurrentServiceId(initialService.id);
-    } else {
-      // Cria um serviço vazio para permitir a adição de múltiplos serviços
-      const emptyService: ServiceListItem = {
-        id: Date.now().toString(),
-        serviceType: '',
-        targetPest: '',
-        location: '',
-        product: null,
-        productAmount: ''
-      };
-      setServiceList([emptyService]);
-      setCurrentServiceId(emptyService.id);
-    }
+    loadActivityData();
   }, []);
   
   // Funções para gerenciar múltiplos serviços
@@ -271,11 +300,33 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
     }
   };
   
+  // Função para salvar estado da atividade no Supabase
+  const saveActivityState = async () => {
+    try {
+      const activeOrder = await activityService.getActiveServiceOrder();
+      if (activeOrder) {
+        const activityState: ActivityState = {
+          currentServiceId,
+          availablePests,
+          availableServiceTypes,
+          showNewPestInput,
+          newPest,
+          showNewServiceInput,
+          newService,
+          localStartTime
+        };
+        await activityService.saveActivityState(activeOrder.id, activityState);
+      }
+    } catch (error) {
+      console.error('Erro ao salvar estado da atividade:', error);
+    }
+  };
+
   // Atualiza o serviço atual na lista quando os campos mudam
   useEffect(() => {
     if (currentServiceId) {
-      setServiceList(prevList => 
-        prevList.map(service => {
+      setServiceList(prevList => {
+        const updatedList = prevList.map(service => {
           // Definir os tipos de serviço que usam produto
           const productServiceTypes = ['pulverizacao', 'atomizacao', 'termonebulizacao', 'polvilhamento', 'iscagem_com_gel', 'monitoramento'];
 
@@ -293,10 +344,30 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
                 productAmount
               }
             : service;
-        })
-      );
+        });
+        
+        // Salvar lista de serviços no Supabase
+        const saveServiceList = async () => {
+          try {
+            const activeOrder = await activityService.getActiveServiceOrder();
+            if (activeOrder) {
+              await activityService.saveServiceList(activeOrder.id, updatedList);
+            }
+          } catch (error) {
+            console.error('Erro ao salvar lista de serviços:', error);
+          }
+        };
+        saveServiceList();
+        
+        return updatedList;
+      });
     }
   }, [serviceType, targetPest, location, state.selectedProduct, productAmount, currentServiceId]);
+
+  // Salvar estado da atividade quando houver mudanças
+  useEffect(() => {
+    saveActivityState();
+  }, [currentServiceId, availablePests, availableServiceTypes, showNewPestInput, newPest, showNewServiceInput, newService, localStartTime]);
 
   // Atualiza quando receber evento de início de OS
   useEffect(() => {
@@ -331,7 +402,6 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
 
         // Limpa as contagens de pragas e reseta as listas dinâmicas
         setPestCounts([]);
-        localStorage.removeItem('pestCounts');
         setAvailablePests(initialPests); // Reseta a lista de pragas dinâmicas
         setAvailableServiceTypes(initialServiceTypes); // Reseta a lista de tipos de serviço dinâmicos
 
@@ -359,28 +429,78 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
     }
   }, [startTime]);
 
-  // Recarregar a página quando a OS for finalizada com sucesso
+  // Limpar dados da página quando a OS for finalizada ou uma nova for iniciada
   useEffect(() => {
+    const handleServiceActivityCleanup = (event: CustomEvent) => {
+      console.log('Limpando dados da página de atividade:', event.detail);
+      
+      // Se for uma nova ordem, limpa tudo exceto o que será preenchido automaticamente
+      const isNewOrder = event.detail?.newOrder;
+      
+      // Limpa todos os campos do formulário
+      onServiceTypeChange({ target: { value: '' } } as React.ChangeEvent<HTMLSelectElement>);
+      onTargetPestChange('');
+      onLocationChange('');
+      onApplicationMethodChange('');
+      onProductAmountChange('');
+      onObservationsChange('');
+      onProductSelect(null);
+
+      // Limpa a lista de serviços e cria um novo serviço vazio
+      const emptyService: ServiceListItem = {
+        id: Date.now().toString(),
+        serviceType: '',
+        targetPest: '',
+        location: '',
+        product: null,
+        productAmount: ''
+      };
+      setServiceList([emptyService]);
+      setCurrentServiceId(emptyService.id);
+
+      // Limpa as contagens de pragas e reseta as listas dinâmicas
+      setPestCounts([]);
+      setAvailablePests(initialPests);
+      setAvailableServiceTypes(initialServiceTypes);
+
+      // Limpa outros estados locais
+      setShowNewPestInput(false);
+      setNewPest('');
+      setShowNewServiceInput(false);
+      setNewService('');
+      
+      // Se for finalização de OS, limpa o horário de início também
+      if (!isNewOrder) {
+        setLocalStartTime(null);
+      }
+
+      console.log(`Dados da página de atividade limpos para ${isNewOrder ? 'nova OS' : 'finalização de OS'}`);
+    };
+
     const handleServiceOrderFinished = (event: CustomEvent) => {
       // Só recarrega a página se não for uma OS retroativa
       if (event.detail?.success && !event.detail?.isRetroactive) {
         setPestCounts([]);
-        localStorage.removeItem('pestCounts');
+        // Dados agora são gerenciados pelo Supabase
         window.location.reload();
       }
     };
 
+    window.addEventListener('serviceActivityCleanup', handleServiceActivityCleanup as EventListener);
     window.addEventListener('serviceOrderFinished', handleServiceOrderFinished as EventListener);
+    
     return () => {
+      window.removeEventListener('serviceActivityCleanup', handleServiceActivityCleanup as EventListener);
       window.removeEventListener('serviceOrderFinished', handleServiceOrderFinished as EventListener);
     };
-  }, []);
+  }, [onServiceTypeChange, onTargetPestChange, onLocationChange, onApplicationMethodChange,
+      onProductAmountChange, onObservationsChange, onProductSelect]);
 
   // Converte a lista de serviços para JSON para ser acessada pelo App.tsx
   const serviceListJson = JSON.stringify(serviceList);
 
   // Função para lidar com os dados retroativos
-  const handleRetroactiveData = (data: {
+  const handleRetroactiveData = async (data: {
     date: string;
     startTime: string;
     endTime: string;
@@ -400,6 +520,20 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
       duration: data.duration,
       isRetroactive: true
     }));
+    
+    // Salvar dados retroativos no Supabase
+    try {
+      const activeOrder = await activityService.getActiveServiceOrder();
+      if (activeOrder) {
+        await activityService.savePestCounts(activeOrder.id, pestCounts);
+        await activityService.saveServiceList(activeOrder.id, serviceList);
+        if (localStartTime) {
+          await activityService.saveStartTime(activeOrder.id, localStartTime);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao salvar dados retroativos:', error);
+    }
     
     // Dispara evento de início de OS com data retroativa
     const startEvent = new CustomEvent('serviceStart', {
@@ -430,16 +564,20 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
     }
   };
   
-  // Carregar contagens de pragas do localStorage ao iniciar
+  // Carregar contagens de pragas do Supabase ao iniciar
   useEffect(() => {
-    const savedCounts = localStorage.getItem('pestCounts');
-    if (savedCounts) {
+    const loadSavedCounts = async () => {
       try {
-        setPestCounts(JSON.parse(savedCounts));
+        const activeOrder = await activityService.getActiveServiceOrder();
+        if (activeOrder) {
+          const counts = await activityService.loadPestCounts(activeOrder.id);
+          setPestCounts(counts);
+        }
       } catch (error) {
-        console.error('Erro ao carregar contagens de pragas:', error);
+        console.error('Erro ao carregar contagens salvas:', error);
       }
-    }
+    };
+    loadSavedCounts();
   }, []);
 
   // Função para adicionar nova praga à lista
@@ -627,7 +765,7 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
           </select>
 
           {showNewServiceInput && (
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 space-y-2">
               <input
                 type="text"
                 value={newService}
@@ -638,23 +776,25 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
                   }
                 }}
                 placeholder="Digite o novo tipo de serviço"
-                className="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />
-              <button
-                onClick={handleAddNewServiceType}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-              >
-                Adicionar
-              </button>
-              <button
-                onClick={() => {
-                  setNewService('');
-                  setShowNewServiceInput(false);
-                }}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-              >
-                Cancelar
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={handleAddNewServiceType}
+                  className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium"
+                >
+                  Adicionar
+                </button>
+                <button
+                  onClick={() => {
+                    setNewService('');
+                    setShowNewServiceInput(false);
+                  }}
+                  className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           )}
 
@@ -711,7 +851,7 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
           </select>
 
           {showNewPestInput && (
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 space-y-2">
               <input
                 type="text"
                 value={newPest}
@@ -722,23 +862,25 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
                   }
                 }}
                 placeholder="Digite a nova praga alvo"
-                className="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />
-              <button
-                onClick={handleAddNewPest}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-              >
-                Adicionar
-              </button>
-              <button
-                onClick={() => {
-                  setNewPest('');
-                  setShowNewPestInput(false);
-                }}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-              >
-                Cancelar
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={handleAddNewPest}
+                  className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium"
+                >
+                  Adicionar
+                </button>
+                <button
+                  onClick={() => {
+                    setNewPest('');
+                    setShowNewPestInput(false);
+                  }}
+                  className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           )}
           
@@ -809,17 +951,17 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
 
         {/* Grid de seletores */}
         {!isTreatmentService && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex space-x-2">
+          <div className="mb-6">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <button
                 onClick={onOpenDeviceModal}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4"
+                className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-center"
               >
                 Selecionar Dispositivos
               </button>
               <button
                 onClick={() => setShowPestCountingModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-4"
+                className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-center"
               >
                 Contagem de Pragas
               </button>
@@ -852,7 +994,7 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
         )}
 
         {/* Botões de ação */}
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="flex flex-col sm:flex-row justify-end gap-3 sm:gap-2 mt-6">
           <button
             onClick={() => {
               // Verifica se os campos obrigatórios estão preenchidos
@@ -871,8 +1013,8 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
                 
                 // Exibe mensagem de sucesso
                 const toast = document.createElement('div');
-                toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md shadow-lg z-50';
-                toast.textContent = 'Serviço adicionado com sucesso!';
+                // toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md shadow-lg z-50';
+        // toast.textContent = 'Serviço adicionado com sucesso!';
                 document.body.appendChild(toast);
                 setTimeout(() => {
                   document.body.removeChild(toast);
@@ -880,26 +1022,33 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
               } else {
                 // Exibe mensagem de erro
                 const toast = document.createElement('div');
-                toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded-md shadow-lg z-50';
-                toast.textContent = 'Preencha os campos obrigatórios: Tipo de Serviço, Praga Alvo e Local';
+                // toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded-md shadow-lg z-50';
+        // toast.textContent = 'Preencha os campos obrigatórios: Tipo de Serviço, Praga Alvo e Local';
                 document.body.appendChild(toast);
                 setTimeout(() => {
                   document.body.removeChild(toast);
                 }, 3000);
               }
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 sm:py-2 rounded-lg flex items-center justify-center gap-2 font-medium"
           >
             <Plus className="h-5 w-5" />
             Salvar Serviço
           </button>
           <button
+            onClick={onApproveOS}
+            className="w-full sm:w-auto bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-3 sm:py-2 rounded-lg flex items-center justify-center gap-2 font-medium"
+          >
+            <ThumbsUp className="h-5 w-5" />
+            Aprovar OS
+          </button>
+          <button
             onClick={() => {
               setPestCounts([]);
-              localStorage.removeItem('pestCounts');
+              // Dados agora são gerenciados pelo Supabase
               onFinishOS();
             }}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md disabled:opacity-50 flex items-center gap-2"
+            className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-3 sm:py-2 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
             disabled={!canFinishOS()}
           >
             <CheckCircle className="h-5 w-5" />
@@ -908,13 +1057,6 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
             ) : (
               <span>Finalizar OS</span>
             )}
-          </button>
-          <button
-            onClick={onApproveOS}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <ThumbsUp className="h-5 w-5" />
-            Aprovar OS
           </button>
         </div>
       </div>
@@ -1012,17 +1154,17 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
               )}
 
               {/* Botões de Ação */}
-              <div className="mt-6 flex justify-end space-x-3">
+              <div className="mt-6 flex flex-col sm:flex-row justify-end gap-3 sm:gap-3">
                 <button
                   onClick={onSaveDevices}
                   disabled={!canSave}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto px-6 py-3 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   Salvar Dispositivos
                 </button>
                 <button
                   onClick={onCloseDeviceModal}
-                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full sm:w-auto px-6 py-3 sm:py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 font-medium"
                 >
                   Fechar
                 </button>
@@ -1037,7 +1179,7 @@ const ServiceActivity: React.FC<ServiceActivityProps> = ({
         <div className="mt-8 border-t pt-6">
           <div className="mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-700 mb-3">Resumo de Contagem de Pragas</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {pestCounts.map((item, index) => (
                 <div key={index} className="bg-white p-3 rounded-md shadow-sm">
                   <h4 className="font-medium text-gray-800">{item.deviceType} {item.deviceNumber}</h4>
